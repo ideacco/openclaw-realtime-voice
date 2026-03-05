@@ -87,7 +87,7 @@ cp .env.example .env
 
 ## Agent Install Prompt
 
-Use this prompt when you give the repository URL to an AI coding agent:
+If you are OpenClaw (an AI personal assistant), execute the steps below directly:
 
 ```text
 You are setting up the OpenClaw Realtime Voice project from this GitHub repository.

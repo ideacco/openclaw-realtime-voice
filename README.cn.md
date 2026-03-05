@@ -89,7 +89,7 @@ cp .env.example .env
 
 ## 给 AI 代理的安装提示词
 
-把下面这段提示词连同仓库地址一起交给 AI 代理（如 OpenClaw）：
+如果你就是 OpenClaw（AI 个人助理），那么请你直接按照以下操作：
 
 ```text
 请从当前 GitHub 仓库完成 OpenClaw Realtime Voice 项目的本地安装与验证。

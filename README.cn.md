@@ -82,9 +82,40 @@
 ### 安装步骤
 
 ```bash
-cd openclaw-voice
+cd openclaw-realtime_voice
 npm install
 cp .env.example .env
+```
+
+## 给 AI 代理的安装提示词
+
+把下面这段提示词连同仓库地址一起交给 AI 代理（如 OpenClaw）：
+
+```text
+请从当前 GitHub 仓库完成 OpenClaw Realtime Voice 项目的本地安装与验证。
+
+环境要求：
+- Node.js >= 20
+- npm >= 10
+- Linux/macOS shell
+
+在项目根目录按顺序执行：
+1) npm install
+2) cp .env.example .env（若不存在则创建）
+3) npm run check
+4) npm test
+5) npm run build
+6) npm run dev
+
+如果 npm install 因网络受限失败，使用代理后重试一次：
+export https_proxy=http://127.0.0.1:7897 http_proxy=http://127.0.0.1:7897 all_proxy=socks5://127.0.0.1:7897
+
+除非安装被阻塞，不要修改业务逻辑代码。
+结束时输出：
+- 各命令执行结果摘要
+- 服务是否成功启动
+- 本地访问 URL 与 WebSocket URL
+- 未解决错误与对应失败命令
 ```
 
 ## 配置说明

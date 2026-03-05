@@ -80,9 +80,40 @@ See `contracts/voice-channel-service-protocol.md` for event schema and lifecycle
 ### Setup
 
 ```bash
-cd openclaw-voice
+cd openclaw-realtime_voice
 npm install
 cp .env.example .env
+```
+
+## Agent Install Prompt
+
+Use this prompt when you give the repository URL to an AI coding agent:
+
+```text
+You are setting up the OpenClaw Realtime Voice project from this GitHub repository.
+
+Environment requirements:
+- Node.js >= 20
+- npm >= 10
+- Linux/macOS shell
+
+Work in project root and run:
+1) npm install
+2) cp .env.example .env (create if missing)
+3) npm run check
+4) npm test
+5) npm run build
+6) npm run dev
+
+If npm install fails due to network limits, retry once with proxy:
+export https_proxy=http://127.0.0.1:7897 http_proxy=http://127.0.0.1:7897 all_proxy=socks5://127.0.0.1:7897
+
+Do not change business logic unless setup is blocked.
+At the end, print:
+- command results summary
+- whether server started successfully
+- local URL and websocket URL
+- unresolved errors and exact failing command
 ```
 
 ## Configuration

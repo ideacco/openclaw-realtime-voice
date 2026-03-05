@@ -26,7 +26,7 @@
 
 ### 1. 音频服务层
 
-位于 `src/`。
+位于 `server/src/`。
 
 主流程：
 
@@ -34,14 +34,22 @@
 
 关键模块：
 
-- `src/channel/voice-channel-plugin.ts`：会话编排与 WS 事件路由
-- `src/vad/simple-vad.ts`：基于静音/能量阈值切分
-- `src/asr/realtime-asr-client.ts`：ASR 接口 + mock 实现
-- `src/tts/aliyun-tts-client.ts`：阿里云实时 TTS 客户端
-- `src/pipeline/voice-agent.ts`：token 到 TTS 的流式控制器
-- `src/web/voice-ui/`：浏览器调试与实时播放页面
+- `server/src/channel/voice-channel-plugin.ts`：会话编排与 WS 事件路由
+- `server/src/vad/simple-vad.ts`：基于静音/能量阈值切分
+- `server/src/asr/realtime-asr-client.ts`：ASR 接口 + mock 实现
+- `server/src/tts/aliyun-tts-client.ts`：阿里云实时 TTS 客户端
+- `server/src/pipeline/voice-agent.ts`：token 到 TTS 的流式控制器
 
-### 2. OpenClaw 插件层
+### 2. Client 层
+
+位于 `client/`。
+
+职责：
+
+- 提供浏览器调试 UI 与实时播放页面
+- 采集麦克风音频分片并通过 WebSocket 发送到服务端
+
+### 3. OpenClaw 插件层
 
 位于 `openclaw-plugin/`。
 
@@ -58,7 +66,7 @@
 - `openclaw-plugin/src/voice-channel-plugin.ts`
 - `openclaw-plugin/src/audio-service-client.ts`
 
-### 3. 跨层协议
+### 4. 跨层协议
 
 事件结构和生命周期请参考：
 
@@ -66,11 +74,11 @@
 
 ## 目录结构
 
-- `src/`：音频服务实现
+- `server/`：实时语音 WebSocket 服务（Node.js）
+- `client/`：浏览器调试前端
 - `openclaw-plugin/`：OpenClaw 插件骨架
 - `contracts/`：接口契约文档
-- `tests/`：单元测试
-- `dist/`：编译产物
+- `docker-compose.yml`：可选的一键容器启动
 
 ## 安装说明
 
@@ -82,7 +90,7 @@
 ### 安装步骤
 
 ```bash
-cd openclaw-realtime_voice
+cd server
 npm install
 cp .env.example .env
 ```
@@ -99,13 +107,14 @@ cp .env.example .env
 - npm >= 10
 - Linux/macOS shell
 
-在项目根目录按顺序执行：
-1) npm install
-2) cp .env.example .env（若不存在则创建）
-3) npm run check
-4) npm test
-5) npm run build
-6) npm run dev
+在仓库根目录按顺序执行：
+1) cd server
+2) npm install
+3) cp .env.example .env（若不存在则创建）
+4) npm run check
+5) npm test
+6) npm run build
+7) npm run dev
 
 如果 npm install 因网络受限失败，使用代理后重试一次：
 export https_proxy=http://127.0.0.1:7897 http_proxy=http://127.0.0.1:7897 all_proxy=socks5://127.0.0.1:7897
@@ -120,7 +129,7 @@ export https_proxy=http://127.0.0.1:7897 http_proxy=http://127.0.0.1:7897 all_pr
 
 ## 配置说明
 
-在 `.env` 中使用通用变量：
+在 `server/.env` 中使用通用变量：
 
 - `SPEECH_API_KEY`：语音服务密钥
 - `ASR_MODEL`：ASR 模型名
@@ -142,6 +151,7 @@ export https_proxy=http://127.0.0.1:7897 http_proxy=http://127.0.0.1:7897 all_pr
 ### 启动音频服务
 
 ```bash
+cd server
 npm run dev
 ```
 
@@ -156,6 +166,7 @@ npm run dev
 ## 测试
 
 ```bash
+cd server
 npm run check
 npm test
 npm run build
@@ -170,11 +181,18 @@ npm run build
 
 ## 接入 OpenClaw 的步骤
 
-1. 本仓库作为音频服务保持运行。
+1. 在 `server/` 目录启动音频服务。
 2. 将 `openclaw-plugin/` 复制到 OpenClaw 的 extensions 目录。
 3. 在 OpenClaw 配置里启用 `voice` channel。
 4. 配置插件指向 `AUDIO_SERVICE_BASE_URL` 和 token。
 5. 启动 OpenClaw gateway，验证 channel 生命周期。
+
+## Docker Compose（可选）
+
+```bash
+cp server/.env.example server/.env
+docker compose up --build
+```
 
 ## 当前限制
 

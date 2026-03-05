@@ -3,7 +3,7 @@
 这个目录是 OpenClaw Channel 插件层（上层）。
 
 - 插件职责：接入 OpenClaw runtime 生命周期，注册 `voice` channel。
-- 音频处理职责：委托给外部音频服务（当前仓库根目录实现）。
+- 音频处理职责：委托给外部音频服务（当前仓库 `server/` 实现）。
 
 ## 目录
 
@@ -21,4 +21,4 @@
 1. 将该目录复制到 OpenClaw 的 `extensions/voice-channel`
 2. 在 OpenClaw 配置中启用 `channels.voice`
 3. 配置 `audioServiceBaseUrl` 与 `audioServiceToken`
-4. 启动 OpenClaw 与本仓库根目录音频服务
+4. 启动 OpenClaw 与本仓库 `server/` 音频服务

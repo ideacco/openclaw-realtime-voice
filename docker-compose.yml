@@ -1,0 +1,13 @@
+services:
+  voice-server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    container_name: openclaw-realtime-voice-server
+    ports:
+      - "${PORT:-8080}:8080"
+    env_file:
+      - ./server/.env
+    volumes:
+      - ./client:/app/client:ro
+    restart: unless-stopped

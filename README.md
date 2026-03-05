@@ -26,7 +26,7 @@ This repository is designed to help you build a ChatGPT Voice-like flow on top o
 
 ### 1. Audio Service Layer
 
-Located in `src/`.
+Located in `server/src/`.
 
 Main flow:
 
@@ -34,14 +34,22 @@ Main flow:
 
 Key modules:
 
-- `src/channel/voice-channel-plugin.ts`: session orchestration and websocket event router
-- `src/vad/simple-vad.ts`: segmentation by silence/energy
-- `src/asr/realtime-asr-client.ts`: ASR interface + mock implementation
-- `src/tts/aliyun-tts-client.ts`: Aliyun realtime TTS websocket client
-- `src/pipeline/voice-agent.ts`: token-to-tts streaming controller
-- `src/web/voice-ui/`: browser debug client and realtime playback UI
+- `server/src/channel/voice-channel-plugin.ts`: session orchestration and websocket event router
+- `server/src/vad/simple-vad.ts`: segmentation by silence/energy
+- `server/src/asr/realtime-asr-client.ts`: ASR interface + mock implementation
+- `server/src/tts/aliyun-tts-client.ts`: Aliyun realtime TTS websocket client
+- `server/src/pipeline/voice-agent.ts`: token-to-tts streaming controller
 
-### 2. OpenClaw Plugin Layer
+### 2. Client Layer
+
+Located in `client/`.
+
+Main responsibility:
+
+- Provide browser debug UI and realtime playback page
+- Capture mic audio chunks and send them to the server websocket
+
+### 3. OpenClaw Plugin Layer
 
 Located in `openclaw-plugin/`.
 
@@ -58,17 +66,17 @@ Key files:
 - `openclaw-plugin/src/voice-channel-plugin.ts`
 - `openclaw-plugin/src/audio-service-client.ts`
 
-### 3. Cross-layer Contract
+### 4. Cross-layer Contract
 
 See `contracts/voice-channel-service-protocol.md` for event schema and lifecycle.
 
 ## Repository Layout
 
-- `src/`: audio service implementation
+- `server/`: realtime voice websocket service (Node.js)
+- `client/`: browser debug frontend
 - `openclaw-plugin/`: OpenClaw plugin scaffold
 - `contracts/`: interface contract docs
-- `tests/`: unit tests
-- `dist/`: compiled output
+- `docker-compose.yml`: optional one-command container startup
 
 ## Installation
 
@@ -80,7 +88,7 @@ See `contracts/voice-channel-service-protocol.md` for event schema and lifecycle
 ### Setup
 
 ```bash
-cd openclaw-realtime_voice
+cd server
 npm install
 cp .env.example .env
 ```
@@ -97,13 +105,14 @@ Environment requirements:
 - npm >= 10
 - Linux/macOS shell
 
-Work in project root and run:
-1) npm install
-2) cp .env.example .env (create if missing)
-3) npm run check
-4) npm test
-5) npm run build
-6) npm run dev
+Work in repository root and run:
+1) cd server
+2) npm install
+3) cp .env.example .env (create if missing)
+4) npm run check
+5) npm test
+6) npm run build
+7) npm run dev
 
 If npm install fails due to network limits, retry once with proxy:
 export https_proxy=http://127.0.0.1:7897 http_proxy=http://127.0.0.1:7897 all_proxy=socks5://127.0.0.1:7897
@@ -118,7 +127,7 @@ At the end, print:
 
 ## Configuration
 
-Use `.env` with provider-neutral keys:
+Use `server/.env` with provider-neutral keys:
 
 - `SPEECH_API_KEY`: API key for speech provider
 - `ASR_MODEL`: ASR model name
@@ -140,6 +149,7 @@ Backward compatibility:
 ### Start Audio Service
 
 ```bash
+cd server
 npm run dev
 ```
 
@@ -154,6 +164,7 @@ Then open:
 ## Testing
 
 ```bash
+cd server
 npm run check
 npm test
 npm run build
@@ -168,11 +179,18 @@ Manual test checklist:
 
 ## OpenClaw Integration Steps
 
-1. Keep this repository running as the audio service.
+1. Start the audio service from `server/`.
 2. Copy `openclaw-plugin/` into OpenClaw extensions directory.
 3. Register/enable the `voice` channel in OpenClaw config.
 4. Set plugin config to point to `AUDIO_SERVICE_BASE_URL` and token.
 5. Start OpenClaw gateway and validate channel lifecycle.
+
+## Docker Compose (Optional)
+
+```bash
+cp server/.env.example server/.env
+docker compose up --build
+```
 
 ## Current Limitations
 

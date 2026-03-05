@@ -1,0 +1,8 @@
+.git
+.gitignore
+node_modules
+dist
+server/node_modules
+server/dist
+openclaw-plugin
+Doc

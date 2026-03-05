@@ -7,7 +7,7 @@ import { MockOpenClawAdapter } from './channel/mock-openclaw-adapter.js';
 import { VoiceChannelPlugin } from './channel/voice-channel-plugin.js';
 import type { TtsMode } from './tts/aliyun-tts-client.js';
 
-const webRoot = path.join(process.cwd(), 'src', 'web', 'voice-ui');
+const webRoot = path.resolve(process.cwd(), '..', 'client');
 loadEnvFile(path.join(process.cwd(), '.env'));
 
 const port = Number(process.env.PORT ?? 8080);

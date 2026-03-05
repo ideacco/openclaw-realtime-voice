@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OpenClaw Voice Channel Plugin</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <h1>OpenClaw Voice Channel Plugin</h1>
+      <p class="sub">Audio Stream -> VAD -> ASR -> OpenClaw Message -> TTS -> Audio Chunks</p>
+
+      <section class="panel">
+        <label>
+          Channel Token
+          <input id="token" value="dev-token" />
+        </label>
+        <div class="row">
+          <button id="connectBtn">连接频道</button>
+          <button id="disconnectBtn" disabled>断开</button>
+          <span id="status">未连接</span>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>语音输入</h2>
+        <div class="row">
+          <button id="recordBtn" disabled>开始录音</button>
+          <button id="stopBtn" disabled>停止并提交</button>
+          <span id="recordStatus">空闲</span>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>实时语音文本（调试）</h2>
+        <p id="liveTranscript" class="transcript">（录音时将实时显示）</p>
+        <p id="finalTranscript" class="transcript muted">服务端 ASR 结果：-</p>
+      </section>
+
+      <section class="panel">
+        <h2>文本调试输入</h2>
+        <label>
+          输入文本
+          <textarea id="inputText" rows="4">你好，我想测试新的 Voice Channel 插件链路。</textarea>
+        </label>
+        <div class="row">
+          <button id="speakBtn" disabled>发送文本</button>
+          <button id="endBtn" disabled>结束会话</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>日志</h2>
+        <pre id="log"></pre>
+      </section>
+    </main>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

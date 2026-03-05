@@ -15,6 +15,14 @@ export default {
       inputSampleRate: Number(pluginConfig.inputSampleRate ?? process.env.INPUT_SAMPLE_RATE ?? 16000)
     });
 
-    api.registerChannel?.({ plugin: channel });
+    if (typeof api.registerChannel === 'function') {
+      try {
+        // Preferred registration shape (OpenClaw 2026.3.x observed in the field).
+        api.registerChannel({ plugin: channel });
+      } catch {
+        // Fallback for runtimes expecting direct plugin object.
+        api.registerChannel(channel);
+      }
+    }
   }
 };

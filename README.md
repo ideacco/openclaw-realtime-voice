@@ -181,9 +181,30 @@ Manual test checklist:
 
 1. Start the audio service from `server/`.
 2. Copy `openclaw-plugin/` into OpenClaw extensions directory.
-3. Register/enable the `voice` channel in OpenClaw config.
-4. Set plugin config to point to `AUDIO_SERVICE_BASE_URL` and token.
-5. Start OpenClaw gateway and validate channel lifecycle.
+3. Install plugin dependencies in plugin directory: `npm install`.
+4. Set required plugin config in `~/.openclaw/openclaw.json`:
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "voice-channel": {
+        "enabled": true,
+        "config": {
+          "audioServiceBaseUrl": "http://127.0.0.1:8080",
+          "audioServiceToken": "dev-token",
+          "audioServiceWsUrl": "ws://127.0.0.1:8080/channel/voice/ws"
+        }
+      }
+    }
+  }
+}
+```
+
+5. Restart OpenClaw after plugin install or config change.
+6. Run `openclaw status` and verify config is valid.
+7. If you see `must have required property 'audioServiceBaseUrl'` or `audioServiceToken`, those keys are missing in `plugins.entries.voice-channel.config`.
+8. If you see `Cannot find module 'ws'`, run `npm install` in the plugin directory and restart OpenClaw.
 
 ## Docker Compose (Optional)
 

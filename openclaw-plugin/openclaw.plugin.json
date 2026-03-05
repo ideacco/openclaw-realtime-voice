@@ -17,6 +17,9 @@
       "audioServiceToken": {
         "type": "string"
       },
+      "audioServiceWsUrl": {
+        "type": "string"
+      },
       "voice": {
         "type": "string",
         "default": "Bunny"

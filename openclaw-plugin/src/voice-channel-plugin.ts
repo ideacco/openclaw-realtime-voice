@@ -11,28 +11,34 @@ export interface VoiceChannelPluginConfig {
 
 export function createVoiceChannelPlugin(config: VoiceChannelPluginConfig): any {
   const clientByAccount = new Map<string, AudioServiceClient>();
+  const resolveAccountId = (account: any): string => account?.id ?? account?.accountId ?? 'default';
 
   return {
     id: 'voice',
     meta: {
-      displayName: 'Voice Channel',
-      capabilities: {
-        supportsTextOutbound: true,
-        supportsMediaOutbound: false
-      }
+      id: 'voice',
+      label: 'Voice',
+      selectionLabel: 'Voice Channel (Plugin)',
+      docsPath: '/channels/voice',
+      blurb: 'External realtime voice channel via websocket gateway.'
+    },
+
+    capabilities: {
+      chatTypes: ['direct']
     },
 
     config: {
-      listAccountIds: async () => ['default'],
-      resolveAccount: async () => ({
-        id: 'default',
+      listAccountIds: (_cfg: any) => ['default'],
+      resolveAccount: (_cfg: any, accountId?: string) => ({
+        id: accountId ?? 'default',
+        accountId: accountId ?? 'default',
         label: 'Default Voice Account'
       })
     },
 
     gateway: {
       startAccount: async ({ account }: any) => {
-        const accountId = account?.id ?? 'default';
+        const accountId = resolveAccountId(account);
         if (clientByAccount.has(accountId)) {
           return;
         }
@@ -54,7 +60,7 @@ export function createVoiceChannelPlugin(config: VoiceChannelPluginConfig): any 
       },
 
       stopAccount: async ({ account }: any) => {
-        const accountId = account?.id ?? 'default';
+        const accountId = resolveAccountId(account);
         const client = clientByAccount.get(accountId);
         if (!client) {
           return;
@@ -67,14 +73,16 @@ export function createVoiceChannelPlugin(config: VoiceChannelPluginConfig): any 
     },
 
     outbound: {
+      deliveryMode: 'direct',
       sendText: async ({ account, text }: any) => {
-        const accountId = account?.id ?? 'default';
+        const accountId = resolveAccountId(account);
         const client = clientByAccount.get(accountId);
         if (!client) {
           throw new Error(`Voice account ${accountId} is not started`);
         }
 
         client.sendText(text);
+        return { ok: true };
       }
     }
   };

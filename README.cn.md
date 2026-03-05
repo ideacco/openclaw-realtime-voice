@@ -183,9 +183,30 @@ npm run build
 
 1. 在 `server/` 目录启动音频服务。
 2. 将 `openclaw-plugin/` 复制到 OpenClaw 的 extensions 目录。
-3. 在 OpenClaw 配置里启用 `voice` channel。
-4. 配置插件指向 `AUDIO_SERVICE_BASE_URL` 和 token。
-5. 启动 OpenClaw gateway，验证 channel 生命周期。
+3. 在插件目录先执行依赖安装：`npm install`。
+4. 在 `~/.openclaw/openclaw.json` 中配置插件必填项：
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "voice-channel": {
+        "enabled": true,
+        "config": {
+          "audioServiceBaseUrl": "http://127.0.0.1:8080",
+          "audioServiceToken": "dev-token",
+          "audioServiceWsUrl": "ws://127.0.0.1:8080/channel/voice/ws"
+        }
+      }
+    }
+  }
+}
+```
+
+5. 安装插件或修改配置后，重启 OpenClaw。
+6. 执行 `openclaw status`，确认配置校验通过。
+7. 如果提示 `must have required property 'audioServiceBaseUrl'` 或 `audioServiceToken`，说明 `plugins.entries.voice-channel.config` 下缺少必填字段。
+8. 如果提示 `Cannot find module 'ws'`，请在插件目录执行 `npm install` 后重启 OpenClaw。
 
 ## Docker Compose（可选）
 

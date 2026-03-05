@@ -8,6 +8,7 @@ export default {
 
     const channel = createVoiceChannelPlugin({
       audioServiceBaseUrl: pluginConfig.audioServiceBaseUrl ?? process.env.AUDIO_SERVICE_BASE_URL ?? 'http://127.0.0.1:8080',
+      audioServiceWsUrl: pluginConfig.audioServiceWsUrl ?? process.env.AUDIO_SERVICE_WS_URL,
       audioServiceToken: pluginConfig.audioServiceToken ?? process.env.AUDIO_SERVICE_TOKEN ?? 'dev-token',
       voice: pluginConfig.voice ?? process.env.VOICE_DEFAULT ?? 'Bunny',
       ttsSampleRate: Number(pluginConfig.ttsSampleRate ?? process.env.TTS_SAMPLE_RATE ?? 24000),

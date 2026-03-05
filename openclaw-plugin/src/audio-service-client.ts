@@ -3,6 +3,7 @@ import WebSocket from 'ws';
 
 export interface AudioServiceClientConfig {
   baseUrl: string;
+  wsUrl?: string;
   token: string;
 }
 
@@ -25,7 +26,7 @@ export class AudioServiceClient extends EventEmitter {
 
   connect(): Promise<void> {
     return new Promise((resolve, reject) => {
-      const wsUrl = this.config.baseUrl.replace(/^http/, 'ws') + `/channel/voice/ws?token=${encodeURIComponent(this.config.token)}`;
+      const wsUrl = this.resolveWsUrl();
       const ws = new WebSocket(wsUrl);
 
       ws.on('open', () => {
@@ -79,5 +80,27 @@ export class AudioServiceClient extends EventEmitter {
       throw new Error('Audio service websocket is not connected');
     }
     this.ws.send(JSON.stringify(payload));
+  }
+
+  private resolveWsUrl(): string {
+    const origin = (this.config.wsUrl ?? this.config.baseUrl).trim();
+    if (!origin) {
+      throw new Error('Audio service url is empty');
+    }
+
+    let parsed: URL;
+    if (/^wss?:\/\//i.test(origin)) {
+      parsed = new URL(origin);
+    } else if (/^https?:\/\//i.test(origin)) {
+      parsed = new URL(origin.replace(/^http/i, (m) => (m.toLowerCase() === 'https' ? 'wss' : 'ws')));
+    } else {
+      parsed = new URL(`ws://${origin}`);
+    }
+
+    if (!parsed.pathname || parsed.pathname === '/') {
+      parsed.pathname = '/channel/voice/ws';
+    }
+    parsed.searchParams.set('token', this.config.token);
+    return parsed.toString();
   }
 }

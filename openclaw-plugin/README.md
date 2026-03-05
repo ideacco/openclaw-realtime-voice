@@ -21,4 +21,5 @@
 1. 将该目录复制到 OpenClaw 的 `extensions/voice-channel`
 2. 在 OpenClaw 配置中启用 `channels.voice`
 3. 配置 `audioServiceBaseUrl` 与 `audioServiceToken`
-4. 启动 OpenClaw 与本仓库 `server/` 音频服务
+4. 异机部署时可选配置 `audioServiceWsUrl`（`ws://` 或 `wss://`）
+5. 启动 OpenClaw 与本仓库 `server/` 音频服务

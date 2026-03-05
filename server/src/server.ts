@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MockRealtimeAsrClient } from './asr/realtime-asr-client.js';
@@ -14,6 +15,7 @@ const webRoot = path.resolve(serverRoot, '..', 'client');
 loadEnvFile(path.join(serverRoot, '.env'));
 
 const port = Number(process.env.PORT ?? 8080);
+const host = process.env.HOST ?? '0.0.0.0';
 const token = process.env.VOICE_GATEWAY_TOKEN ?? 'dev-token';
 const idleTimeoutMs = Number(process.env.VOICE_IDLE_TIMEOUT_MS ?? 60_000);
 const useMockTts = asBool(process.env.MOCK_TTS, true);
@@ -68,11 +70,16 @@ const channelPlugin = new VoiceChannelPlugin({
   useMockTts
 });
 
-server.listen(port, () => {
+server.listen(port, host, () => {
+  const lanIp = firstLanIpv4();
   console.log(`[voice-channel] server started: http://localhost:${port}`);
+  if (lanIp) {
+    console.log(`[voice-channel] lan url: http://${lanIp}:${port}`);
+    console.log(`[voice-channel] lan websocket: ws://${lanIp}:${port}/channel/voice/ws?token=${token}`);
+  }
   console.log(`[voice-channel] websocket: ws://localhost:${port}/channel/voice/ws?token=${token}`);
   console.log(
-    `[voice-channel] mode: MOCK_TTS=${useMockTts} MOCK_ASR=${useMockAsr} ASR_MODEL=${asrModel} TTS_MODE=${ttsMode} TTS_URL=${ttsUrl}`
+    `[voice-channel] mode: HOST=${host} MOCK_TTS=${useMockTts} MOCK_ASR=${useMockAsr} ASR_MODEL=${asrModel} TTS_MODE=${ttsMode} TTS_URL=${ttsUrl}`
   );
   if (!useMockAsr) {
     console.log(
@@ -160,4 +167,19 @@ function parseTtsMode(value: string | undefined): TtsMode {
 
 function envWithFallback(primary: string, legacy: string): string | undefined {
   return process.env[primary] ?? process.env[legacy];
+}
+
+function firstLanIpv4(): string | null {
+  const nets = os.networkInterfaces();
+  for (const iface of Object.values(nets)) {
+    if (!iface) {
+      continue;
+    }
+    for (const addr of iface) {
+      if (addr.family === 'IPv4' && !addr.internal) {
+        return addr.address;
+      }
+    }
+  }
+  return null;
 }

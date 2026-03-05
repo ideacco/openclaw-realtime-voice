@@ -2,6 +2,7 @@ import { AudioServiceClient } from './audio-service-client.js';
 
 export interface VoiceChannelPluginConfig {
   audioServiceBaseUrl: string;
+  audioServiceWsUrl?: string;
   audioServiceToken: string;
   voice: string;
   ttsSampleRate: number;
@@ -38,6 +39,7 @@ export function createVoiceChannelPlugin(config: VoiceChannelPluginConfig): any 
 
         const client = new AudioServiceClient({
           baseUrl: config.audioServiceBaseUrl,
+          wsUrl: config.audioServiceWsUrl,
           token: config.audioServiceToken
         });
 

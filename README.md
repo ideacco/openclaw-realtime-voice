@@ -1,72 +1,157 @@
 # OpenClaw Voice Channel
 
-项目标识（package name）：`openclaw-voice-channel-plugin`
+[中文版本 (Chinese)](./README.cn.md)
 
-当前实现已从“独立 Voice Gateway 插件”调整为“OpenClaw Channel Plugin（频道插件）”结构。
+A two-layer realtime voice interaction project for OpenClaw:
 
-## 双层架构目录
+- **Audio Service Layer**: realtime audio ingestion, VAD, ASR abstraction, LLM token-to-speech pipeline, browser playback.
+- **OpenClaw Channel Plugin Layer**: OpenClaw channel plugin scaffold that bridges OpenClaw runtime and the audio service.
 
-- `src/*`: 音频服务层（Audio Service + Web UI）
-- `openclaw-plugin/*`: OpenClaw Channel 插件层骨架
-- `contracts/voice-channel-service-protocol.md`: 两层之间的协议契约
+This repository is designed to help you build a ChatGPT Voice-like flow on top of OpenClaw.
 
-核心链路：
+## Features
 
-- 客户端音频流 -> Voice Channel WebSocket
-- VAD 切分
-- ASR 转文本
-- 触发 OpenClaw 标准 message 事件（通过 Adapter）
-- 拦截 OpenClaw 流式文本回复
-- 分句送入流式 TTS
-- 音频分片回推客户端
+- Realtime websocket voice session endpoint (`/channel/voice/ws`)
+- Audio chunk ingestion from browser client
+- VAD segmentation pipeline (`input.audio.chunk` -> segment)
+- ASR abstraction with pluggable implementation (currently mock implementation)
+- Streaming assistant token handling
+- Sentence segmentation for low-latency TTS
+- Aliyun realtime TTS integration (new realtime protocol)
+- Streaming audio chunk playback in web UI
+- OpenClaw channel plugin scaffold (`openclaw-plugin/`)
+- Contract document between plugin layer and audio service (`contracts/`)
 
-## 目录重点
+## Architecture
 
-- `src/channel/voice-channel-plugin.ts`: Channel 插件主流程
-- `src/vad/simple-vad.ts`: VAD 切分
-- `src/asr/realtime-asr-client.ts`: ASR 接口与 mock 实现
-- `src/channel/openclaw-adapter.ts`: OpenClaw 适配接口
-- `src/channel/mock-openclaw-adapter.ts`: mock OpenClaw 流式回复
-- `src/tts/aliyun-tts-client.ts`: Aliyun Realtime TTS 客户端
+### 1. Audio Service Layer
 
-## Quick Start
+Located in `src/`.
 
-1. 安装依赖
+Main flow:
+
+`Audio Input -> VAD -> ASR -> OpenClaw Adapter -> Token Stream -> Sentence Segmenter -> Realtime TTS -> Audio Chunks`
+
+Key modules:
+
+- `src/channel/voice-channel-plugin.ts`: session orchestration and websocket event router
+- `src/vad/simple-vad.ts`: segmentation by silence/energy
+- `src/asr/realtime-asr-client.ts`: ASR interface + mock implementation
+- `src/tts/aliyun-tts-client.ts`: Aliyun realtime TTS websocket client
+- `src/pipeline/voice-agent.ts`: token-to-tts streaming controller
+- `src/web/voice-ui/`: browser debug client and realtime playback UI
+
+### 2. OpenClaw Plugin Layer
+
+Located in `openclaw-plugin/`.
+
+Main responsibility:
+
+- Register a `voice` channel plugin in OpenClaw
+- Connect to the audio service websocket
+- Forward outbound text from OpenClaw to audio service
+
+Key files:
+
+- `openclaw-plugin/openclaw.plugin.json`
+- `openclaw-plugin/index.ts`
+- `openclaw-plugin/src/voice-channel-plugin.ts`
+- `openclaw-plugin/src/audio-service-client.ts`
+
+### 3. Cross-layer Contract
+
+See `contracts/voice-channel-service-protocol.md` for event schema and lifecycle.
+
+## Repository Layout
+
+- `src/`: audio service implementation
+- `openclaw-plugin/`: OpenClaw plugin scaffold
+- `contracts/`: interface contract docs
+- `tests/`: unit tests
+- `dist/`: compiled output
+
+## Installation
+
+### Prerequisites
+
+- Node.js 20+
+- npm 10+
+
+### Setup
 
 ```bash
+cd openclaw-voice
 npm install
-```
-
-2. 配置环境变量
-
-```bash
 cp .env.example .env
 ```
 
-3. 运行
+## Configuration
+
+Use `.env` with provider-neutral keys:
+
+- `SPEECH_API_KEY`: API key for speech provider
+- `ASR_MODEL`: ASR model name
+- `TTS_URL`: realtime TTS websocket endpoint
+- `TTS_MODEL`: realtime TTS model name
+- `TTS_VOICE`: voice profile
+- `TTS_FORMAT`: currently `pcm`
+- `TTS_SAMPLE_RATE`: output sample rate, e.g. `24000`
+- `TTS_MODE`: `server_commit` or `commit`
+- `MOCK_TTS`: `true`/`false`
+- `MOCK_ASR`: `true`/`false`
+
+Backward compatibility:
+
+- Legacy `ALIYUN_*` keys are still accepted as fallback.
+
+## Run
+
+### Start Audio Service
 
 ```bash
 npm run dev
 ```
 
-4. 打开浏览器
+Then open:
 
-访问 `http://localhost:8080`
+- `http://localhost:8080`
 
-## WebSocket
+### WebSocket Endpoint
 
-- Endpoint: `ws://localhost:8080/channel/voice/ws?token=dev-token`
-- 默认 token: `VOICE_GATEWAY_TOKEN`
+- `ws://localhost:8080/channel/voice/ws?token=<VOICE_GATEWAY_TOKEN>`
 
-## 当前默认实现说明
+## Testing
 
-- `MOCK_TTS=true` 时无需阿里云 Key 即可演示音频回放
-- ASR 默认是 `MockRealtimeAsrClient`，会将音频分片转换为演示文本
-- OpenClaw 默认是 `MockOpenClawAdapter`，用于模拟流式 token 回复
-- 可通过 `ASR_MODEL` 单独配置 ASR 模型，通过 `TTS_MODEL` 单独配置 TTS 模型
-- 认证密钥使用 `SPEECH_API_KEY`
-- 真实阿里云 TTS 使用 Realtime WS 协议（`input_text_buffer.append` / `response.audio.delta`）
-- `TTS_MODE` 推荐值：`server_commit`（可选 `commit`）
-- 当前兼容旧变量前缀：`ALIYUN_*`（建议逐步迁移到通用变量名）
+```bash
+npm run check
+npm test
+npm run build
+```
 
-要接入真实 OpenClaw Runtime：实现 `OpenClawAdapter` 并替换 `src/server.ts` 中的 mock adapter。
+Manual test checklist:
+
+1. Connect channel from web UI.
+2. Send text and verify `assistant.text.delta` and `audio.output.delta` events.
+3. Start recording, stop/commit, verify `vad.segment` and `asr.text`.
+4. Verify the final event `audio.output.completed`.
+
+## OpenClaw Integration Steps
+
+1. Keep this repository running as the audio service.
+2. Copy `openclaw-plugin/` into OpenClaw extensions directory.
+3. Register/enable the `voice` channel in OpenClaw config.
+4. Set plugin config to point to `AUDIO_SERVICE_BASE_URL` and token.
+5. Start OpenClaw gateway and validate channel lifecycle.
+
+## Current Limitations
+
+- Real ASR provider implementation is not wired yet (mock fallback is used).
+- `openclaw-plugin/` is a scaffold and may require adaptation to your OpenClaw runtime version.
+- Browser realtime transcript panel depends on `SpeechRecognition` browser support.
+
+## Roadmap
+
+- Implement real ASR client (Aliyun realtime ASR)
+- Add OpenAI provider implementations
+- Add full-duplex interruption (barge-in)
+- Add production-grade observability and retry policies

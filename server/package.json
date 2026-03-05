@@ -16,7 +16,6 @@
     "ws": "^8.18.0"
   },
   "devDependencies": {
-    "@rollup/rollup-darwin-x64": "^4.59.0",
     "@types/node": "^22.15.0",
     "@types/ws": "^8.18.1",
     "tsx": "^4.20.0",

@@ -2,13 +2,16 @@ import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { MockRealtimeAsrClient } from './asr/realtime-asr-client.js';
 import { MockOpenClawAdapter } from './channel/mock-openclaw-adapter.js';
 import { VoiceChannelPlugin } from './channel/voice-channel-plugin.js';
 import type { TtsMode } from './tts/aliyun-tts-client.js';
 
-const webRoot = path.resolve(process.cwd(), '..', 'client');
-loadEnvFile(path.join(process.cwd(), '.env'));
+const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+const serverRoot = path.resolve(moduleDir, '..');
+const webRoot = path.resolve(serverRoot, '..', 'client');
+loadEnvFile(path.join(serverRoot, '.env'));
 
 const port = Number(process.env.PORT ?? 8080);
 const token = process.env.VOICE_GATEWAY_TOKEN ?? 'dev-token';

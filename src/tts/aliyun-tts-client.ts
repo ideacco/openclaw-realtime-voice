@@ -23,6 +23,7 @@ export interface TtsClient {
   connect(): Promise<void>;
   updateSession(config: TtsSessionConfig): void;
   sendText(text: string): void;
+  commitInput(): void;
   close(): void;
   on<E extends keyof TtsClientEvents>(event: E, listener: TtsClientEvents[E]): this;
   off<E extends keyof TtsClientEvents>(event: E, listener: TtsClientEvents[E]): this;
@@ -100,13 +101,20 @@ export class AliyunTtsClient extends EventEmitter implements TtsClient {
     );
 
     if (this.config.mode === 'commit') {
-      this.ws.send(
-        JSON.stringify({
-          event_id: randomUUID(),
-          type: 'input_text_buffer.commit'
-        })
-      );
+      this.commitInput();
     }
+  }
+
+  commitInput(): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    this.ws.send(
+      JSON.stringify({
+        event_id: randomUUID(),
+        type: 'input_text_buffer.commit'
+      })
+    );
   }
 
   close(): void {
@@ -198,6 +206,7 @@ export class AliyunTtsClient extends EventEmitter implements TtsClient {
         event_id: randomUUID(),
         type: 'session.update',
         session: {
+          model: config.model,
           voice: config.voice,
           response_format: config.format,
           sample_rate: config.sampleRate,

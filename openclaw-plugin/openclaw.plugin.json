@@ -1,0 +1,38 @@
+{
+  "id": "voice-channel",
+  "name": "Voice Channel",
+  "version": "0.1.0",
+  "description": "OpenClaw Channel plugin delegating realtime voice to external audio service",
+  "entry": "./index.ts",
+  "channels": [
+    "voice"
+  ],
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "audioServiceBaseUrl": {
+        "type": "string",
+        "default": "http://127.0.0.1:8080"
+      },
+      "audioServiceToken": {
+        "type": "string"
+      },
+      "voice": {
+        "type": "string",
+        "default": "Bunny"
+      },
+      "ttsSampleRate": {
+        "type": "number",
+        "default": 24000
+      },
+      "inputSampleRate": {
+        "type": "number",
+        "default": 16000
+      }
+    },
+    "required": [
+      "audioServiceBaseUrl",
+      "audioServiceToken"
+    ]
+  }
+}

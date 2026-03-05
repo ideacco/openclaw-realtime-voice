@@ -1,11 +1,22 @@
 import type { AudioChunk } from '../vad/simple-vad.js';
 
 export interface RealtimeAsrClient {
+  readonly model: string;
   transcribe(chunks: AudioChunk[]): Promise<string>;
   close(): void;
 }
 
+export interface MockRealtimeAsrClientOptions {
+  model: string;
+}
+
 export class MockRealtimeAsrClient implements RealtimeAsrClient {
+  readonly model: string;
+
+  constructor(options: MockRealtimeAsrClientOptions) {
+    this.model = options.model;
+  }
+
   async transcribe(chunks: AudioChunk[]): Promise<string> {
     if (chunks.length === 0) {
       return '';

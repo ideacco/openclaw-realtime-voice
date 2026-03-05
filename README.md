@@ -4,6 +4,12 @@
 
 当前实现已从“独立 Voice Gateway 插件”调整为“OpenClaw Channel Plugin（频道插件）”结构。
 
+## 双层架构目录
+
+- `src/*`: 音频服务层（Audio Service + Web UI）
+- `openclaw-plugin/*`: OpenClaw Channel 插件层骨架
+- `contracts/voice-channel-service-protocol.md`: 两层之间的协议契约
+
 核心链路：
 
 - 客户端音频流 -> Voice Channel WebSocket
@@ -57,7 +63,10 @@ npm run dev
 - `MOCK_TTS=true` 时无需阿里云 Key 即可演示音频回放
 - ASR 默认是 `MockRealtimeAsrClient`，会将音频分片转换为演示文本
 - OpenClaw 默认是 `MockOpenClawAdapter`，用于模拟流式 token 回复
+- 可通过 `ASR_MODEL` 单独配置 ASR 模型，通过 `TTS_MODEL` 单独配置 TTS 模型
+- 认证密钥使用 `SPEECH_API_KEY`
 - 真实阿里云 TTS 使用 Realtime WS 协议（`input_text_buffer.append` / `response.audio.delta`）
-- `ALIYUN_TTS_MODE` 推荐值：`server_commit`（可选 `commit`）
+- `TTS_MODE` 推荐值：`server_commit`（可选 `commit`）
+- 当前兼容旧变量前缀：`ALIYUN_*`（建议逐步迁移到通用变量名）
 
 要接入真实 OpenClaw Runtime：实现 `OpenClawAdapter` 并替换 `src/server.ts` 中的 mock adapter。

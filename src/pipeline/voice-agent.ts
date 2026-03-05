@@ -12,6 +12,8 @@ export interface VoiceAgentCallbacks {
 export class VoiceAgent extends EventEmitter {
   private sendChain: Promise<void> = Promise.resolve();
 
+  private lastConfigKey = '';
+
   constructor(
     private readonly ttsClient: TtsClient,
     private readonly segmenter: SentenceSegmenter,
@@ -24,7 +26,13 @@ export class VoiceAgent extends EventEmitter {
   async startTurn(config: TtsSessionConfig): Promise<void> {
     this.segmenter.reset();
     this.sendChain = Promise.resolve();
-    this.ttsClient.updateSession(config);
+
+    const currentConfigKey = JSON.stringify(config);
+    if (currentConfigKey !== this.lastConfigKey) {
+      this.ttsClient.updateSession(config);
+      this.lastConfigKey = currentConfigKey;
+    }
+
     await this.ttsClient.connect();
   }
 
@@ -42,6 +50,7 @@ export class VoiceAgent extends EventEmitter {
       this.enqueueSend(sentence);
     }
     await this.sendChain;
+    this.ttsClient.commitInput();
   }
 
   close(): void {
@@ -67,7 +76,15 @@ export class VoiceAgent extends EventEmitter {
       if (!sentence.trim()) {
         return;
       }
-      this.ttsClient.sendText(sentence);
+      try {
+        this.ttsClient.sendText(sentence);
+      } catch (error) {
+        if (!isDisconnectedError(error)) {
+          throw error;
+        }
+        await this.ttsClient.connect();
+        this.ttsClient.sendText(sentence);
+      }
     });
 
     this.sendChain = this.sendChain.catch((error: unknown) => {
@@ -78,4 +95,11 @@ export class VoiceAgent extends EventEmitter {
 
 function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
+}
+
+function isDisconnectedError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  return error.message.toLowerCase().includes('not connected');
 }

@@ -32,6 +32,10 @@ export class MockTtsClient extends EventEmitter implements TtsClient {
     }
   }
 
+  commitInput(): void {
+    return;
+  }
+
   close(): void {
     this.emit('close');
   }

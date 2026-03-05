@@ -15,11 +15,19 @@ const token = process.env.VOICE_GATEWAY_TOKEN ?? 'dev-token';
 const idleTimeoutMs = Number(process.env.VOICE_IDLE_TIMEOUT_MS ?? 60_000);
 const useMockTts = asBool(process.env.MOCK_TTS, true);
 const useMockAsr = asBool(process.env.MOCK_ASR, true);
-const aliyunApiKey = process.env.ALIYUN_API_KEY;
-const aliyunTtsMode = parseTtsMode(process.env.ALIYUN_TTS_MODE);
+const speechApiKey = envWithFallback('SPEECH_API_KEY', 'ALIYUN_API_KEY');
+const asrModel = envWithFallback('ASR_MODEL', 'ALIYUN_ASR_MODEL') ?? 'paraformer-realtime-v2';
+const ttsUrl =
+  envWithFallback('TTS_URL', 'ALIYUN_TTS_URL') ??
+  'wss://dashscope.aliyuncs.com/api-ws/v1/realtime';
+const ttsModel = envWithFallback('TTS_MODEL', 'ALIYUN_TTS_MODEL') ?? 'qwen-tts-realtime';
+const ttsVoice = envWithFallback('TTS_VOICE', 'ALIYUN_TTS_VOICE') ?? 'Bunny';
+const ttsFormat = (envWithFallback('TTS_FORMAT', 'ALIYUN_TTS_FORMAT') as 'pcm' | undefined) ?? 'pcm';
+const ttsSampleRate = Number(envWithFallback('TTS_SAMPLE_RATE', 'ALIYUN_TTS_SAMPLE_RATE') ?? 24000);
+const ttsMode = parseTtsMode(envWithFallback('TTS_MODE', 'ALIYUN_TTS_MODE'));
 
-if (!useMockTts && !aliyunApiKey) {
-  throw new Error('MOCK_TTS=false but ALIYUN_API_KEY is missing');
+if (!useMockTts && !speechApiKey) {
+  throw new Error('MOCK_TTS=false but SPEECH_API_KEY is missing');
 }
 
 const server = createServer(async (req, res) => {
@@ -41,18 +49,18 @@ const channelPlugin = new VoiceChannelPlugin({
   server,
   token,
   idleTimeoutMs,
-  asr: new MockRealtimeAsrClient(),
+  asr: new MockRealtimeAsrClient({
+    model: asrModel
+  }),
   openclaw: new MockOpenClawAdapter(),
   aliyun: {
-    apiKey: aliyunApiKey,
-    url:
-      process.env.ALIYUN_TTS_URL ??
-      'wss://dashscope.aliyuncs.com/api-ws/v1/realtime',
-    model: process.env.ALIYUN_TTS_MODEL ?? 'qwen-tts-realtime',
-    voice: process.env.ALIYUN_TTS_VOICE ?? 'Bunny',
-    format: (process.env.ALIYUN_TTS_FORMAT as 'pcm' | undefined) ?? 'pcm',
-    sampleRate: Number(process.env.ALIYUN_TTS_SAMPLE_RATE ?? 24000),
-    mode: aliyunTtsMode
+    apiKey: speechApiKey,
+    url: ttsUrl,
+    model: ttsModel,
+    voice: ttsVoice,
+    format: ttsFormat,
+    sampleRate: ttsSampleRate,
+    mode: ttsMode
   },
   useMockTts
 });
@@ -61,10 +69,12 @@ server.listen(port, () => {
   console.log(`[voice-channel] server started: http://localhost:${port}`);
   console.log(`[voice-channel] websocket: ws://localhost:${port}/channel/voice/ws?token=${token}`);
   console.log(
-    `[voice-channel] mode: MOCK_TTS=${useMockTts} MOCK_ASR=${useMockAsr} ALIYUN_TTS_MODE=${aliyunTtsMode} ALIYUN_TTS_URL=${process.env.ALIYUN_TTS_URL ?? 'default'}`
+    `[voice-channel] mode: MOCK_TTS=${useMockTts} MOCK_ASR=${useMockAsr} ASR_MODEL=${asrModel} TTS_MODE=${ttsMode} TTS_URL=${ttsUrl}`
   );
   if (!useMockAsr) {
-    console.log('[voice-channel] WARN: real ASR client is not implemented yet, fallback to mock ASR');
+    console.log(
+      `[voice-channel] WARN: real ASR client is not implemented yet, fallback to mock ASR (model=${asrModel})`
+    );
   }
 });
 
@@ -143,4 +153,8 @@ function parseTtsMode(value: string | undefined): TtsMode {
     return 'commit';
   }
   return 'server_commit';
+}
+
+function envWithFallback(primary: string, legacy: string): string | undefined {
+  return process.env[primary] ?? process.env[legacy];
 }

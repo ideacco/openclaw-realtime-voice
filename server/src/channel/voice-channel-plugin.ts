@@ -54,6 +54,7 @@ interface SessionState {
   queue: Promise<void>;
   pendingLocalAsrText: string;
   lastLocalAsrFinalText: string;
+  pendingAsrText: string;
 }
 
 export class VoiceChannelPlugin {
@@ -226,7 +227,8 @@ export class VoiceChannelPlugin {
       idleTimer: null,
       queue: Promise.resolve(),
       pendingLocalAsrText: '',
-      lastLocalAsrFinalText: ''
+      lastLocalAsrFinalText: '',
+      pendingAsrText: ''
     };
 
     state.idleTimer = state.clientRole === 'plugin' ? null : this.makeIdleTimer(ws);
@@ -311,6 +313,9 @@ export class VoiceChannelPlugin {
 
     const segment = state.vad.flush();
     if (segment.length === 0) {
+      this.enqueue(state, async () => {
+        await this.finalizePendingAsr(state);
+      });
       return;
     }
 
@@ -438,7 +443,7 @@ export class VoiceChannelPlugin {
   private async processSpeechSegment(
     state: SessionState,
     chunks: AudioChunk[],
-    _reason: 'manual' | 'vad'
+    reason: 'manual' | 'vad'
   ): Promise<void> {
     if (this.options.asrProvider === 'browser') {
       return;
@@ -449,9 +454,20 @@ export class VoiceChannelPlugin {
       return;
     }
 
-    this.emitAsrText(state, text, true);
+    if (reason === 'vad') {
+      state.pendingAsrText = mergeAsrText(state.pendingAsrText, text);
+      this.emitAsrText(state, state.pendingAsrText, false);
+      return;
+    }
 
-    await this.processUserText(state, text, 'asr');
+    const merged = mergeAsrText(state.pendingAsrText, text).trim();
+    state.pendingAsrText = '';
+    if (!merged) {
+      return;
+    }
+
+    this.emitAsrText(state, merged, true);
+    await this.processUserText(state, merged, 'asr');
   }
 
   private async processUserText(
@@ -573,8 +589,19 @@ export class VoiceChannelPlugin {
       clearTimeout(state.idleTimer);
     }
     state.vad.reset();
+    state.pendingAsrText = '';
     state.agent.close();
     this.sessions.delete(state.ws);
+  }
+
+  private async finalizePendingAsr(state: SessionState): Promise<void> {
+    const text = state.pendingAsrText.trim();
+    if (!text) {
+      return;
+    }
+    state.pendingAsrText = '';
+    this.emitAsrText(state, text, true);
+    await this.processUserText(state, text, 'asr');
   }
 
   private emitAsrText(state: SessionState, text: string, isFinal: boolean): void {
@@ -635,6 +662,19 @@ export class VoiceChannelPlugin {
 
 function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
+}
+
+function mergeAsrText(previous: string, incoming: string): string {
+  const left = previous.trim();
+  const right = incoming.trim();
+  if (!left) {
+    return right;
+  }
+  if (!right) {
+    return left;
+  }
+  const needsSpace = /[A-Za-z0-9]$/.test(left) && /^[A-Za-z0-9]/.test(right);
+  return `${left}${needsSpace ? ' ' : ''}${right}`;
 }
 
 function isUpstreamFailure(message: string): boolean {

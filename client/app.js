@@ -6,6 +6,7 @@ const recordBtn = document.getElementById('recordBtn');
 const stopBtn = document.getElementById('stopBtn');
 const speakBtn = document.getElementById('speakBtn');
 const wakeToggleBtn = document.getElementById('wakeToggleBtn');
+const pttToggleBtn = document.getElementById('pttToggleBtn');
 const wakeWordsInput = document.getElementById('wakeWordsInput');
 const silenceMsInput = document.getElementById('silenceMsInput');
 const wakeStateEl = document.getElementById('wakeStateLabel');
@@ -27,7 +28,8 @@ const player = new PcmAudioPlayer(24000);
 const STORAGE_KEYS = {
   wakeEnabled: 'oc_voice_wake_enabled',
   wakeWords: 'oc_voice_wake_words',
-  silenceMs: 'oc_voice_wake_silence_ms'
+  silenceMs: 'oc_voice_wake_silence_ms',
+  pttEnabled: 'oc_voice_ptt_enabled'
 };
 
 const DEFAULT_WAKE_WORDS = '你好老六';
@@ -81,6 +83,7 @@ let wakeChimeContext = null;
 let wakeChimeUnsupportedLogged = false;
 
 let wakeModeEnabled = readBool(STORAGE_KEYS.wakeEnabled, true);
+let pushToTalkEnabled = readBool(STORAGE_KEYS.pttEnabled, true);
 let wakeWordsRaw = readString(STORAGE_KEYS.wakeWords, DEFAULT_WAKE_WORDS);
 let wakeSilenceMs = readNumber(STORAGE_KEYS.silenceMs, DEFAULT_SILENCE_MS, 600, 5000);
 let wakeWords = parseWakeWords(wakeWordsRaw);
@@ -105,6 +108,8 @@ let assistantLastActivityAt = 0;
 let assistantSettleTimer = null;
 let assistantFallbackTimer = null;
 let assistantReplyStarted = false;
+let spacePressed = false;
+let spaceTurnActive = false;
 
 initWakeControls();
 refreshControls();
@@ -159,6 +164,8 @@ connectBtn.addEventListener('click', () => {
     clearTurnTimers();
     clearAssistantTimers();
     resetTurnBuffers();
+    spacePressed = false;
+    spaceTurnActive = false;
     stopBrowserTts();
 
     await stopRecordingAudio();
@@ -233,6 +240,18 @@ wakeToggleBtn.addEventListener('click', () => {
   refreshControls();
 });
 
+pttToggleBtn.addEventListener('click', () => {
+  pushToTalkEnabled = !pushToTalkEnabled;
+  writeStorage(STORAGE_KEYS.pttEnabled, pushToTalkEnabled ? '1' : '0');
+  updatePttToggleUi();
+  if (!pushToTalkEnabled) {
+    spacePressed = false;
+    spaceTurnActive = false;
+  }
+  log(`ptt.mode: ${pushToTalkEnabled ? 'enabled' : 'disabled'}`);
+  refreshControls();
+});
+
 wakeWordsInput.addEventListener('change', () => {
   updateWakeWords(wakeWordsInput.value);
 });
@@ -247,6 +266,61 @@ silenceMsInput.addEventListener('change', () => {
   silenceMsInput.value = String(parsed);
   writeStorage(STORAGE_KEYS.silenceMs, String(parsed));
   log(`wake.silence_ms: ${parsed}`);
+});
+
+window.addEventListener('keydown', (event) => {
+  if (!pushToTalkEnabled || event.code !== 'Space') {
+    return;
+  }
+  if (shouldIgnoreSpaceShortcut(event.target)) {
+    return;
+  }
+
+  event.preventDefault();
+
+  if (event.repeat || spacePressed) {
+    return;
+  }
+
+  spacePressed = true;
+  if (!canStartPushToTalkTurn()) {
+    return;
+  }
+
+  spaceTurnActive = true;
+  void beginTurn('ptt').then(() => {
+    if (voiceState !== STATE.CAPTURING_TURN) {
+      spaceTurnActive = false;
+    }
+  });
+});
+
+window.addEventListener('keyup', (event) => {
+  if (event.code !== 'Space' || (!spacePressed && !spaceTurnActive)) {
+    return;
+  }
+  if (shouldIgnoreSpaceShortcut(event.target) && !spaceTurnActive) {
+    return;
+  }
+
+  event.preventDefault();
+  spacePressed = false;
+
+  if (!spaceTurnActive) {
+    return;
+  }
+  spaceTurnActive = false;
+  void commitTurn({ reason: 'space_release', auto: false });
+});
+
+window.addEventListener('blur', () => {
+  if (!spaceTurnActive) {
+    spacePressed = false;
+    return;
+  }
+  spacePressed = false;
+  spaceTurnActive = false;
+  void commitTurn({ reason: 'space_blur', auto: false });
 });
 
 function onServerEvent(event) {
@@ -296,7 +370,7 @@ function onServerEvent(event) {
     case 'asr.text':
       finalTranscriptEl.textContent = `服务端 ASR 结果：${event.text}`;
       log(`asr.text: ${event.text}`);
-      if (voiceState === STATE.CAPTURING_TURN) {
+      if (voiceState === STATE.CAPTURING_TURN && asrProvider === 'browser') {
         noteTurnSpeechActivity();
       }
       break;
@@ -404,6 +478,8 @@ async function beginTurn(source, wakeKeyword = '') {
 
   if (source === 'wake') {
     log(`wake.detected keyword="${wakeKeyword || '-'}"`);
+  } else if (source === 'ptt') {
+    log('ptt.hold_start');
   }
 
   if (asrProvider === 'aliyun') {
@@ -422,8 +498,12 @@ async function beginTurn(source, wakeKeyword = '') {
     }
   }
 
-  setVoiceState(STATE.CAPTURING_TURN, source === 'wake' ? '已唤醒：请说话' : '手动录音中');
-  setChannelLinkStatus(source === 'wake' ? '唤醒成功，正在收音' : '手动录音中');
+  const captureNote =
+    source === 'wake' ? '已唤醒：请说话' : source === 'ptt' ? '空格按住说话中' : '手动录音中';
+  const linkNote =
+    source === 'wake' ? '唤醒成功，正在收音' : source === 'ptt' ? '空格按住说话中' : '手动录音中';
+  setVoiceState(STATE.CAPTURING_TURN, captureNote);
+  setChannelLinkStatus(linkNote);
   if (source === 'wake') {
     void playWakeChime();
   }
@@ -440,6 +520,7 @@ async function commitTurn(options = { reason: 'silence', auto: true }) {
     return;
   }
 
+  spaceTurnActive = false;
   clearTurnTimers();
   setVoiceState(STATE.TURN_COMMITTING, auto ? '自动提交中' : '手动提交中');
 
@@ -1113,10 +1194,15 @@ function initWakeControls() {
   wakeWordsInput.value = wakeWordsRaw;
   silenceMsInput.value = String(wakeSilenceMs);
   updateWakeToggleUi();
+  updatePttToggleUi();
 }
 
 function updateWakeToggleUi() {
   wakeToggleBtn.textContent = wakeModeEnabled ? '唤醒模式：开' : '唤醒模式：关';
+}
+
+function updatePttToggleUi() {
+  pttToggleBtn.textContent = pushToTalkEnabled ? '空格按住说话：开' : '空格按住说话：关';
 }
 
 function updateWakeWords(rawValue) {
@@ -1169,6 +1255,7 @@ function refreshControls() {
 
   speakBtn.disabled = !connected;
   wakeToggleBtn.disabled = !connected;
+  pttToggleBtn.disabled = !connected;
   wakeWordsInput.disabled = !connected;
   silenceMsInput.disabled = !connected;
 
@@ -1379,6 +1466,36 @@ function clampNumber(value, min, max) {
 
 function toErrorMessage(error) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function canStartPushToTalkTurn() {
+  if (!isConnected()) {
+    return false;
+  }
+  if (!document.hasFocus()) {
+    return false;
+  }
+  if (voiceState === STATE.WAITING_ASSISTANT || voiceState === STATE.TURN_COMMITTING) {
+    return false;
+  }
+  return voiceState === STATE.WAKE_IDLE || voiceState === STATE.MANUAL_READY;
+}
+
+function shouldIgnoreSpaceShortcut(target) {
+  const element = target instanceof Element ? target : null;
+  if (!element) {
+    return false;
+  }
+  if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+    return true;
+  }
+  if (element instanceof HTMLSelectElement || element instanceof HTMLButtonElement) {
+    return true;
+  }
+  if (element.isContentEditable) {
+    return true;
+  }
+  return Boolean(element.closest('[contenteditable="true"]'));
 }
 
 async function playWakeChime() {

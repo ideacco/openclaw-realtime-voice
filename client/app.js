@@ -37,12 +37,16 @@ let speechRecognitionActive = false;
 let realtimeDraft = '';
 let assistantStream = '';
 let asrProvider = 'unknown';
+let ttsProvider = 'unknown';
 let llmEnabled = false;
 let llmMode = 'unknown';
 let lastLocalAsrInterimText = '';
 let lastLocalAsrInterimSentAt = 0;
 let lastLocalAsrFinalText = '';
 let hasLocalAsrFinalSent = false;
+let browserTtsBuffer = '';
+let browserTtsFlushTimer = null;
+let browserTtsUnsupportedLogged = false;
 
 connectBtn.addEventListener('click', () => {
   const token = tokenInput.value.trim();
@@ -91,6 +95,8 @@ connectBtn.addEventListener('click', () => {
     sessionId = null;
     llmEnabled = false;
     llmMode = 'unknown';
+    ttsProvider = 'unknown';
+    stopBrowserTts();
     await stopRecording();
     await player.close();
     log('连接关闭');
@@ -146,17 +152,19 @@ function onServerEvent(event) {
     case 'session.started':
       sessionId = event.sessionId;
       asrProvider = event.asrProvider ?? asrProvider;
+      ttsProvider = event.ttsProvider ?? ttsProvider;
       llmEnabled = Boolean(event.llmEnabled);
       llmMode = event.llmMode ?? llmMode;
       status(`会话已启动 (${event.sessionId.slice(0, 8)})`);
       setChannelLinkStatus(
-        `频道会话已启动 (ASR=${asrProvider}, OpenClaw=${llmEnabled ? llmMode : 'disabled'})`
+        `频道会话已启动 (ASR=${asrProvider}, TTS=${ttsProvider}, OpenClaw=${llmEnabled ? llmMode : 'disabled'})`
       );
       setChannelSessionId(event.sessionId);
       assistantStream = '';
+      browserTtsBuffer = '';
       setAssistantStream('-');
       log(
-        `${event.type} voice=${event.voice} sampleRate=${event.sampleRate} asrProvider=${event.asrProvider ?? '-'} llmEnabled=${event.llmEnabled ?? '-'} llmMode=${event.llmMode ?? '-'}`
+        `${event.type} voice=${event.voice} sampleRate=${event.sampleRate} asrProvider=${event.asrProvider ?? '-'} ttsProvider=${event.ttsProvider ?? '-'} llmEnabled=${event.llmEnabled ?? '-'} llmMode=${event.llmMode ?? '-'}`
       );
       break;
     case 'vad.segment':
@@ -177,14 +185,26 @@ function onServerEvent(event) {
       break;
     case 'assistant.text.delta':
       appendAssistantStream(event.text);
-      setChannelLinkStatus('OpenClaw 正在返回文本，TTS 正在合成');
+      setChannelLinkStatus(
+        ttsProvider === 'browser' ? 'OpenClaw 正在返回文本，本地 TTS 播放中' : 'OpenClaw 正在返回文本，TTS 正在合成'
+      );
+      if (ttsProvider === 'browser') {
+        enqueueBrowserTts(event.text);
+      }
       log(`assistant.text.delta: ${event.text}`);
       break;
     case 'audio.output.delta':
+      if (ttsProvider === 'browser') {
+        // Browser-local TTS mode does not rely on server audio chunks.
+        break;
+      }
       setChannelLinkStatus('正在接收音频流');
       void player.enqueueBase64(event.data);
       break;
     case 'audio.output.completed':
+      if (ttsProvider === 'browser') {
+        flushBrowserTts();
+      }
       setChannelLinkStatus('当前音频段播放完成');
       log('audio.output.completed');
       break;
@@ -203,6 +223,81 @@ function onServerEvent(event) {
       break;
     default:
       log(`unknown event: ${JSON.stringify(event)}`);
+  }
+}
+
+function enqueueBrowserTts(delta) {
+  if (ttsProvider !== 'browser') {
+    return;
+  }
+  browserTtsBuffer += delta;
+
+  const tail = delta.slice(-1);
+  if (/[\n。！？!?；;，,.]/.test(tail) || browserTtsBuffer.length >= 42) {
+    flushBrowserTts();
+    return;
+  }
+
+  if (browserTtsFlushTimer) {
+    clearTimeout(browserTtsFlushTimer);
+  }
+  browserTtsFlushTimer = window.setTimeout(() => {
+    flushBrowserTts();
+  }, 240);
+}
+
+function flushBrowserTts() {
+  if (browserTtsFlushTimer) {
+    clearTimeout(browserTtsFlushTimer);
+    browserTtsFlushTimer = null;
+  }
+
+  if (ttsProvider !== 'browser') {
+    browserTtsBuffer = '';
+    return;
+  }
+
+  const text = browserTtsBuffer.trim();
+  if (!text) {
+    browserTtsBuffer = '';
+    return;
+  }
+  browserTtsBuffer = '';
+  speakBrowserText(text);
+}
+
+function speakBrowserText(text) {
+  const synth = window.speechSynthesis;
+  if (!synth || typeof window.SpeechSynthesisUtterance !== 'function') {
+    if (!browserTtsUnsupportedLogged) {
+      log('当前浏览器不支持 speechSynthesis，本地 TTS 不可用');
+      browserTtsUnsupportedLogged = true;
+    }
+    return;
+  }
+
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = 'zh-CN';
+  utterance.rate = 1;
+  utterance.pitch = 1;
+  utterance.onstart = () => {
+    setChannelLinkStatus('本地 TTS 播放中');
+  };
+  utterance.onend = () => {
+    setChannelLinkStatus('当前音频段播放完成');
+  };
+  synth.speak(utterance);
+}
+
+function stopBrowserTts() {
+  if (browserTtsFlushTimer) {
+    clearTimeout(browserTtsFlushTimer);
+    browserTtsFlushTimer = null;
+  }
+  browserTtsBuffer = '';
+  const synth = window.speechSynthesis;
+  if (synth) {
+    synth.cancel();
   }
 }
 

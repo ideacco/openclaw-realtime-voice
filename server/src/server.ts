@@ -25,6 +25,7 @@ const host = process.env.HOST ?? '0.0.0.0';
 const token = process.env.VOICE_GATEWAY_TOKEN ?? 'dev-token';
 const idleTimeoutMs = Number(process.env.VOICE_IDLE_TIMEOUT_MS ?? 60_000);
 const asrProvider = parseAsrProvider(process.env.ASR_PROVIDER) ?? 'aliyun';
+const ttsProvider = parseTtsProvider(process.env.TTS_PROVIDER) ?? 'aliyun';
 const speechApiKey = envWithFallback('SPEECH_API_KEY', 'ALIYUN_API_KEY');
 const asrModel = envWithFallback('ASR_MODEL', 'ALIYUN_ASR_MODEL') ?? 'paraformer-realtime-v2';
 const asrUrl =
@@ -51,8 +52,8 @@ const openclawTimeoutMs = Number(process.env.OPENCLAW_TIMEOUT_MS ?? 45_000);
 const openclawSystemPrompt = process.env.OPENCLAW_SYSTEM_PROMPT?.trim() || undefined;
 const openclawMode: 'plugin' | 'gateway' = openclawGatewayBaseUrl ? 'gateway' : 'plugin';
 
-if (!speechApiKey) {
-  throw new Error('SPEECH_API_KEY is required');
+if ((asrProvider === 'aliyun' || ttsProvider === 'aliyun') && !speechApiKey) {
+  throw new Error('SPEECH_API_KEY is required when ASR_PROVIDER=aliyun or TTS_PROVIDER=aliyun');
 }
 
 const asrClient = createAsrClient({
@@ -99,14 +100,15 @@ const channelPlugin = new VoiceChannelPlugin({
   openclaw: openclawAdapter,
   openclawMode,
   aliyun: {
-    apiKey: speechApiKey,
+    apiKey: speechApiKey ?? '',
     url: ttsUrl,
     model: ttsModel,
     voice: ttsVoice,
     format: ttsFormat,
     sampleRate: ttsSampleRate,
     mode: ttsMode
-  }
+  },
+  ttsProvider
 });
 
 server.listen(port, host, () => {
@@ -118,7 +120,7 @@ server.listen(port, host, () => {
   }
   console.log(`[voice-channel] websocket: ws://localhost:${port}/channel/voice/ws?token=${token}`);
   console.log(
-    `[voice-channel] mode: HOST=${host} ASR_PROVIDER=${asrProvider} ASR_MODEL=${asrModel} ASR_URL=${asrUrl} TTS_MODE=${ttsMode} TTS_URL=${ttsUrl}`
+    `[voice-channel] mode: HOST=${host} ASR_PROVIDER=${asrProvider} ASR_MODEL=${asrModel} ASR_URL=${asrUrl} TTS_PROVIDER=${ttsProvider} TTS_MODE=${ttsMode} TTS_URL=${ttsUrl}`
   );
   console.log(
     `[voice-channel] openclaw: mode=${openclawMode} gatewayAdapter=${openclawAdapter.enabled} gatewayBaseUrl=${openclawGatewayBaseUrl || '-'} agentId=${openclawAgentId} chatPath=${openclawChatPath}`
@@ -205,6 +207,20 @@ function envWithFallback(primary: string, legacy: string): string | undefined {
 }
 
 function parseAsrProvider(value: string | undefined): AsrProvider | null {
+  if (!value) {
+    return null;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'browser' || normalized === 'local') {
+    return 'browser';
+  }
+  if (normalized === 'aliyun' || normalized === 'cloud') {
+    return 'aliyun';
+  }
+  return null;
+}
+
+function parseTtsProvider(value: string | undefined): 'browser' | 'aliyun' | null {
   if (!value) {
     return null;
   }

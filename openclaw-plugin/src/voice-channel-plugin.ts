@@ -221,7 +221,7 @@ export function createVoiceChannelPlugin(config: VoiceChannelPluginConfig): any 
           );
           logInfo(
             accountId,
-            `STARTED sessionId=${started.sessionId} voice=${started.voice ?? runtimeAccount.voice} sampleRate=${started.sampleRate ?? runtimeAccount.ttsSampleRate} asrProvider=${started.asrProvider ?? '-'} llmEnabled=${started.llmEnabled ?? '-'} llmMode=${started.llmMode ?? '-'}`
+            `STARTED sessionId=${started.sessionId} voice=${started.voice ?? runtimeAccount.voice} sampleRate=${started.sampleRate ?? runtimeAccount.ttsSampleRate} asrProvider=${started.asrProvider ?? '-'} ttsProvider=${started.ttsProvider ?? '-'} llmEnabled=${started.llmEnabled ?? '-'} llmMode=${started.llmMode ?? '-'}`
           );
         } catch (error) {
           client.off('event', listener);

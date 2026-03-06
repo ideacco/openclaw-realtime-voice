@@ -140,6 +140,7 @@ export https_proxy=http://127.0.0.1:7897 http_proxy=http://127.0.0.1:7897 all_pr
 - `ASR_MODEL`：ASR 模型名
 - `ASR_LANGUAGE`：识别语言（默认 `zh`）
 - `ASR_SAMPLE_RATE`：ASR 输入采样率（默认 `16000`）
+- `TTS_PROVIDER`：`aliyun` 或 `browser`
 - `TTS_URL`：实时 TTS WebSocket 地址
 - `TTS_MODEL`：实时 TTS 模型名
 - `TTS_VOICE`：音色
@@ -166,6 +167,11 @@ ASR 模式示例：
 
 - 云端 ASR（阿里云）：`ASR_PROVIDER=aliyun`
 - 浏览器本地识别转写回传：`ASR_PROVIDER=browser`
+
+TTS 模式示例：
+
+- 云端 TTS（返回音频分片）：`TTS_PROVIDER=aliyun`
+- 浏览器本地 TTS（调试页 `speechSynthesis`）：`TTS_PROVIDER=browser`
 
 ## 运行
 

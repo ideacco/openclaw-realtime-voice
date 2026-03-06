@@ -152,6 +152,7 @@ export interface ChannelStartedEvent {
   voice: string;
   sampleRate: number;
   asrProvider?: 'browser' | 'aliyun';
+  ttsProvider?: 'browser' | 'aliyun';
   llmEnabled?: boolean;
   llmMode?: 'plugin' | 'gateway';
 }

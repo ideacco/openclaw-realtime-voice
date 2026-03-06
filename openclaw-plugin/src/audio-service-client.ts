@@ -12,6 +12,7 @@ export interface ChannelStartedPayload {
   voice?: string;
   sampleRate?: number;
   asrProvider?: string;
+  ttsProvider?: string;
   llmEnabled?: boolean;
   llmMode?: 'plugin' | 'gateway';
 }

@@ -113,6 +113,7 @@
   "voice": "Bunny",
   "sampleRate": 24000,
   "asrProvider": "browser",
+  "ttsProvider": "browser",
   "llmEnabled": true,
   "llmMode": "plugin"
 }

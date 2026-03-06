@@ -138,6 +138,7 @@ Use `server/.env` with provider-neutral keys:
 - `ASR_MODEL`: ASR model name
 - `ASR_LANGUAGE`: recognition language (default `zh`)
 - `ASR_SAMPLE_RATE`: ASR input sample rate (default `16000`)
+- `TTS_PROVIDER`: `aliyun` or `browser`
 - `TTS_URL`: realtime TTS websocket endpoint
 - `TTS_MODEL`: realtime TTS model name
 - `TTS_VOICE`: voice profile
@@ -164,6 +165,11 @@ ASR mode examples:
 
 - Cloud ASR (Aliyun): `ASR_PROVIDER=aliyun`
 - Browser-local transcript passthrough: `ASR_PROVIDER=browser`
+
+TTS mode examples:
+
+- Cloud TTS (Aliyun audio chunks): `TTS_PROVIDER=aliyun`
+- Browser-local TTS (`speechSynthesis` in debug web): `TTS_PROVIDER=browser`
 
 ## Run
 

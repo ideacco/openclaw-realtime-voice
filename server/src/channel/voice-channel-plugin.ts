@@ -11,7 +11,13 @@ import {
 } from '../shared/protocol.js';
 import { SentenceSegmenter } from '../pipeline/sentence-segmenter.js';
 import { VoiceAgent } from '../pipeline/voice-agent.js';
-import { AliyunTtsClient, type TtsMode, type TtsSessionConfig } from '../tts/aliyun-tts-client.js';
+import {
+  AliyunTtsClient,
+  type TtsClient,
+  type TtsMode,
+  type TtsSessionConfig
+} from '../tts/aliyun-tts-client.js';
+import { NoopTtsClient } from '../tts/noop-tts-client.js';
 import { SimpleVadEngine, type AudioChunk } from '../vad/simple-vad.js';
 import type { AsrProvider, RealtimeAsrClient } from '../asr/realtime-asr-client.js';
 import type { OpenClawAdapter } from './openclaw-adapter.js';
@@ -33,6 +39,7 @@ interface VoiceChannelPluginOptions {
     sampleRate: number;
     mode: TtsMode;
   };
+  ttsProvider: 'aliyun' | 'browser';
 }
 
 interface SessionState {
@@ -232,6 +239,7 @@ export class VoiceChannelPlugin {
       voice: ttsConfig.voice,
       sampleRate: ttsConfig.sampleRate,
       asrProvider: this.options.asrProvider,
+      ttsProvider: this.options.ttsProvider,
       llmEnabled: true,
       llmMode: this.options.openclawMode
     });
@@ -510,7 +518,10 @@ export class VoiceChannelPlugin {
     await state.agent.endTurn();
   }
 
-  private createTtsClient(): AliyunTtsClient {
+  private createTtsClient(): TtsClient {
+    if (this.options.ttsProvider === 'browser') {
+      return new NoopTtsClient();
+    }
     return new AliyunTtsClient({
       apiKey: this.options.aliyun.apiKey,
       url: this.options.aliyun.url,

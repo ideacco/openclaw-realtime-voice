@@ -12,10 +12,8 @@ import {
 import { SentenceSegmenter } from '../pipeline/sentence-segmenter.js';
 import { VoiceAgent } from '../pipeline/voice-agent.js';
 import { AliyunTtsClient, type TtsMode, type TtsSessionConfig } from '../tts/aliyun-tts-client.js';
-import { MockTtsClient } from '../tts/mock-tts-client.js';
 import { SimpleVadEngine, type AudioChunk } from '../vad/simple-vad.js';
 import type { AsrProvider, RealtimeAsrClient } from '../asr/realtime-asr-client.js';
-import type { OpenClawAdapter } from './openclaw-adapter.js';
 
 interface VoiceChannelPluginOptions {
   server: Server;
@@ -23,9 +21,8 @@ interface VoiceChannelPluginOptions {
   idleTimeoutMs: number;
   asrProvider: AsrProvider;
   asr: RealtimeAsrClient;
-  openclaw: OpenClawAdapter;
   aliyun: {
-    apiKey?: string;
+    apiKey: string;
     url: string;
     model: string;
     voice: string;
@@ -33,7 +30,6 @@ interface VoiceChannelPluginOptions {
     sampleRate: number;
     mode: TtsMode;
   };
-  useMockTts: boolean;
 }
 
 interface SessionState {
@@ -398,21 +394,14 @@ export class VoiceChannelPlugin {
 
     await state.agent.startTurn(state.voiceConfig);
 
-    for await (const token of this.options.openclaw.streamAssistantReply({
-      sessionId: state.sessionId,
-      text
-    })) {
+    for (const token of [...text]) {
       state.agent.onToken(token);
     }
 
     await state.agent.endTurn();
   }
 
-  private createTtsClient(): AliyunTtsClient | MockTtsClient {
-    if (this.options.useMockTts || !this.options.aliyun.apiKey) {
-      return new MockTtsClient();
-    }
-
+  private createTtsClient(): AliyunTtsClient {
     return new AliyunTtsClient({
       apiKey: this.options.aliyun.apiKey,
       url: this.options.aliyun.url,

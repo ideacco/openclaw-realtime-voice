@@ -7,11 +7,9 @@ import { fileURLToPath } from 'node:url';
 import { AliyunRealtimeAsrClient } from './asr/aliyun-realtime-asr-client.js';
 import {
   BrowserRealtimeAsrClient,
-  MockRealtimeAsrClient,
   type AsrProvider,
   type RealtimeAsrClient
 } from './asr/realtime-asr-client.js';
-import { MockOpenClawAdapter } from './channel/mock-openclaw-adapter.js';
 import { VoiceChannelPlugin } from './channel/voice-channel-plugin.js';
 import type { TtsMode } from './tts/aliyun-tts-client.js';
 
@@ -24,9 +22,7 @@ const port = Number(process.env.PORT ?? 8080);
 const host = process.env.HOST ?? '0.0.0.0';
 const token = process.env.VOICE_GATEWAY_TOKEN ?? 'dev-token';
 const idleTimeoutMs = Number(process.env.VOICE_IDLE_TIMEOUT_MS ?? 60_000);
-const useMockTts = asBool(process.env.MOCK_TTS, true);
-const legacyUseMockAsr = asBool(process.env.MOCK_ASR, true);
-const asrProvider = parseAsrProvider(process.env.ASR_PROVIDER) ?? (legacyUseMockAsr ? 'mock' : 'aliyun');
+const asrProvider = parseAsrProvider(process.env.ASR_PROVIDER) ?? 'aliyun';
 const speechApiKey = envWithFallback('SPEECH_API_KEY', 'ALIYUN_API_KEY');
 const asrModel = envWithFallback('ASR_MODEL', 'ALIYUN_ASR_MODEL') ?? 'paraformer-realtime-v2';
 const asrUrl =
@@ -43,8 +39,8 @@ const ttsFormat = (envWithFallback('TTS_FORMAT', 'ALIYUN_TTS_FORMAT') as 'pcm' |
 const ttsSampleRate = Number(envWithFallback('TTS_SAMPLE_RATE', 'ALIYUN_TTS_SAMPLE_RATE') ?? 24000);
 const ttsMode = parseTtsMode(envWithFallback('TTS_MODE', 'ALIYUN_TTS_MODE'));
 
-if ((!useMockTts || asrProvider === 'aliyun') && !speechApiKey) {
-  throw new Error('SPEECH_API_KEY is required when TTS or ASR uses cloud provider');
+if (!speechApiKey) {
+  throw new Error('SPEECH_API_KEY is required');
 }
 
 const asrClient = createAsrClient({
@@ -77,7 +73,6 @@ const channelPlugin = new VoiceChannelPlugin({
   idleTimeoutMs,
   asrProvider,
   asr: asrClient,
-  openclaw: new MockOpenClawAdapter(),
   aliyun: {
     apiKey: speechApiKey,
     url: ttsUrl,
@@ -86,8 +81,7 @@ const channelPlugin = new VoiceChannelPlugin({
     format: ttsFormat,
     sampleRate: ttsSampleRate,
     mode: ttsMode
-  },
-  useMockTts
+  }
 });
 
 server.listen(port, host, () => {
@@ -99,13 +93,8 @@ server.listen(port, host, () => {
   }
   console.log(`[voice-channel] websocket: ws://localhost:${port}/channel/voice/ws?token=${token}`);
   console.log(
-    `[voice-channel] mode: HOST=${host} MOCK_TTS=${useMockTts} ASR_PROVIDER=${asrProvider} ASR_MODEL=${asrModel} ASR_URL=${asrUrl} TTS_MODE=${ttsMode} TTS_URL=${ttsUrl}`
+    `[voice-channel] mode: HOST=${host} ASR_PROVIDER=${asrProvider} ASR_MODEL=${asrModel} ASR_URL=${asrUrl} TTS_MODE=${ttsMode} TTS_URL=${ttsUrl}`
   );
-  if (asrProvider === 'mock') {
-    console.log(
-      `[voice-channel] WARN: using mock ASR provider (model=${asrModel})`
-    );
-  }
   if (asrProvider === 'browser') {
     console.log(
       '[voice-channel] WARN: browser ASR provider requires client to send input.asr.local text'
@@ -168,13 +157,6 @@ function loadEnvFile(filePath: string): void {
   }
 }
 
-function asBool(value: string | undefined, fallback: boolean): boolean {
-  if (value === undefined) {
-    return fallback;
-  }
-  return value.toLowerCase() === 'true';
-}
-
 function parseTtsMode(value: string | undefined): TtsMode {
   if (!value) {
     return 'server_commit';
@@ -199,9 +181,6 @@ function parseAsrProvider(value: string | undefined): AsrProvider | null {
     return null;
   }
   const normalized = value.trim().toLowerCase();
-  if (normalized === 'mock') {
-    return 'mock';
-  }
   if (normalized === 'browser' || normalized === 'local') {
     return 'browser';
   }
@@ -219,9 +198,6 @@ function createAsrClient(options: {
   language: string;
   sampleRate: number;
 }): RealtimeAsrClient {
-  if (options.provider === 'mock') {
-    return new MockRealtimeAsrClient({ model: options.model });
-  }
   if (options.provider === 'browser') {
     return new BrowserRealtimeAsrClient({ model: options.model });
   }

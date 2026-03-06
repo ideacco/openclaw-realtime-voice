@@ -14,7 +14,7 @@ This repository is designed to help you build a ChatGPT Voice-like flow on top o
 - Realtime websocket voice session endpoint (`/channel/voice/ws`)
 - Audio chunk ingestion from browser client
 - VAD segmentation pipeline (`input.audio.chunk` -> segment)
-- Switchable ASR providers: `mock` / `browser` / `aliyun`
+- Switchable ASR providers: `browser` / `aliyun`
 - Streaming assistant token handling
 - Sentence segmentation for low-latency TTS
 - Aliyun realtime TTS integration (new realtime protocol)
@@ -30,13 +30,13 @@ Located in `server/src/`.
 
 Main flow:
 
-`Audio Input -> VAD -> ASR -> OpenClaw Adapter -> Token Stream -> Sentence Segmenter -> Realtime TTS -> Audio Chunks`
+`Audio Input -> VAD -> ASR -> Text Stream -> Sentence Segmenter -> Realtime TTS -> Audio Chunks`
 
 Key modules:
 
 - `server/src/channel/voice-channel-plugin.ts`: session orchestration and websocket event router
 - `server/src/vad/simple-vad.ts`: segmentation by silence/energy
-- `server/src/asr/realtime-asr-client.ts`: ASR interface + mock/browser implementation
+- `server/src/asr/realtime-asr-client.ts`: ASR interface + browser provider implementation
 - `server/src/asr/aliyun-realtime-asr-client.ts`: Aliyun realtime ASR websocket client
 - `server/src/tts/aliyun-tts-client.ts`: Aliyun realtime TTS websocket client
 - `server/src/pipeline/voice-agent.ts`: token-to-tts streaming controller
@@ -131,7 +131,7 @@ At the end, print:
 Use `server/.env` with provider-neutral keys:
 
 - `SPEECH_API_KEY`: API key for speech provider
-- `ASR_PROVIDER`: `mock` / `browser` / `aliyun`
+- `ASR_PROVIDER`: `browser` or `aliyun`
 - `ASR_URL`: realtime ASR websocket endpoint
 - `ASR_MODEL`: ASR model name
 - `ASR_LANGUAGE`: recognition language (default `zh`)
@@ -142,8 +142,6 @@ Use `server/.env` with provider-neutral keys:
 - `TTS_FORMAT`: currently `pcm`
 - `TTS_SAMPLE_RATE`: output sample rate, e.g. `24000`
 - `TTS_MODE`: `server_commit` or `commit`
-- `MOCK_TTS`: `true`/`false`
-- `MOCK_ASR`: legacy compatibility switch (used only when `ASR_PROVIDER` is unset)
 
 Backward compatibility:
 
@@ -153,7 +151,6 @@ ASR mode examples:
 
 - Cloud ASR (Aliyun): `ASR_PROVIDER=aliyun`
 - Browser-local transcript passthrough: `ASR_PROVIDER=browser`
-- Pure mock mode: `ASR_PROVIDER=mock`
 
 ## Run
 

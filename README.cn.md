@@ -14,7 +14,7 @@
 - 实时语音会话 WebSocket 入口（`/channel/voice/ws`）
 - 浏览器音频分片上传
 - VAD 切分（`input.audio.chunk` -> 语音段）
-- ASR 提供方可切换：`mock` / `browser` / `aliyun`
+- ASR 提供方可切换：`browser` / `aliyun`
 - Assistant 流式 token 处理
 - 句子切分后低延迟 TTS
 - 阿里云实时 TTS（新 Realtime 协议）
@@ -30,13 +30,13 @@
 
 主流程：
 
-`音频输入 -> VAD -> ASR -> OpenClaw Adapter -> Token 流 -> 分句 -> 实时 TTS -> 音频分片`
+`音频输入 -> VAD -> ASR -> 文本流 -> 分句 -> 实时 TTS -> 音频分片`
 
 关键模块：
 
 - `server/src/channel/voice-channel-plugin.ts`：会话编排与 WS 事件路由
 - `server/src/vad/simple-vad.ts`：基于静音/能量阈值切分
-- `server/src/asr/realtime-asr-client.ts`：ASR 接口 + mock/browser 实现
+- `server/src/asr/realtime-asr-client.ts`：ASR 接口 + browser 实现
 - `server/src/asr/aliyun-realtime-asr-client.ts`：阿里云实时 ASR 客户端
 - `server/src/tts/aliyun-tts-client.ts`：阿里云实时 TTS 客户端
 - `server/src/pipeline/voice-agent.ts`：token 到 TTS 的流式控制器
@@ -133,7 +133,7 @@ export https_proxy=http://127.0.0.1:7897 http_proxy=http://127.0.0.1:7897 all_pr
 在 `server/.env` 中使用通用变量：
 
 - `SPEECH_API_KEY`：语音服务密钥
-- `ASR_PROVIDER`：`mock` / `browser` / `aliyun`
+- `ASR_PROVIDER`：`browser` 或 `aliyun`
 - `ASR_URL`：实时 ASR WebSocket 地址
 - `ASR_MODEL`：ASR 模型名
 - `ASR_LANGUAGE`：识别语言（默认 `zh`）
@@ -144,8 +144,6 @@ export https_proxy=http://127.0.0.1:7897 http_proxy=http://127.0.0.1:7897 all_pr
 - `TTS_FORMAT`：当前支持 `pcm`
 - `TTS_SAMPLE_RATE`：输出采样率（如 `24000`）
 - `TTS_MODE`：`server_commit` 或 `commit`
-- `MOCK_TTS`：`true`/`false`
-- `MOCK_ASR`：兼容旧开关（当未设置 `ASR_PROVIDER` 时生效）
 
 兼容说明：
 
@@ -155,7 +153,6 @@ ASR 模式示例：
 
 - 云端 ASR（阿里云）：`ASR_PROVIDER=aliyun`
 - 浏览器本地识别转写回传：`ASR_PROVIDER=browser`
-- 纯模拟：`ASR_PROVIDER=mock`
 
 ## 运行
 

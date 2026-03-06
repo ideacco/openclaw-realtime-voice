@@ -143,7 +143,7 @@ export interface ChannelStartedEvent {
   sessionId: string;
   voice: string;
   sampleRate: number;
-  asrProvider?: 'mock' | 'browser' | 'aliyun';
+  asrProvider?: 'browser' | 'aliyun';
 }
 
 export interface SessionEndedEvent {

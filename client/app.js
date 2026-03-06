@@ -38,6 +38,11 @@ let speechRecognitionActive = false;
 let realtimeDraft = '';
 let assistantStream = '';
 let asrProvider = 'unknown';
+let llmEnabled = false;
+let lastLocalAsrInterimText = '';
+let lastLocalAsrInterimSentAt = 0;
+let lastLocalAsrFinalText = '';
+let hasLocalAsrFinalSent = false;
 
 connectBtn.addEventListener('click', () => {
   const token = tokenInput.value.trim();
@@ -85,6 +90,7 @@ connectBtn.addEventListener('click', () => {
     speakBtn.disabled = true;
     endBtn.disabled = true;
     sessionId = null;
+    llmEnabled = false;
     await stopRecording();
     await player.close();
     log('连接关闭');
@@ -124,6 +130,9 @@ speakBtn.addEventListener('click', () => {
     log('输入文本为空');
     return;
   }
+  if (!llmEnabled) {
+    log('警告: 当前会话未启用 OpenClaw 上游，input.text 可能被服务端拒绝');
+  }
 
   send({ type: 'input.text', text });
   log(`发送 input.text: ${text}`);
@@ -144,13 +153,16 @@ function onServerEvent(event) {
     case 'session.started':
       sessionId = event.sessionId;
       asrProvider = event.asrProvider ?? asrProvider;
+      llmEnabled = Boolean(event.llmEnabled);
       status(`会话已启动 (${event.sessionId.slice(0, 8)})`);
-      setChannelLinkStatus(`频道会话已启动 (ASR=${asrProvider})`);
+      setChannelLinkStatus(
+        `频道会话已启动 (ASR=${asrProvider}, OpenClaw=${llmEnabled ? 'enabled' : 'disabled'})`
+      );
       setChannelSessionId(event.sessionId);
       assistantStream = '';
       setAssistantStream('-');
       log(
-        `${event.type} voice=${event.voice} sampleRate=${event.sampleRate} asrProvider=${event.asrProvider ?? '-'}`
+        `${event.type} voice=${event.voice} sampleRate=${event.sampleRate} asrProvider=${event.asrProvider ?? '-'} llmEnabled=${event.llmEnabled ?? '-'}`
       );
       break;
     case 'vad.segment':
@@ -162,7 +174,7 @@ function onServerEvent(event) {
       finalTranscriptEl.textContent = `服务端 ASR 结果：${event.text}`;
       break;
     case 'message.created':
-      setChannelLinkStatus('已触发 OpenClaw message 事件');
+      setChannelLinkStatus('已提交用户文本，等待 OpenClaw 流式回复');
       log(`message.created: ${event.message.content}`);
       break;
     case 'agent.text.delta':
@@ -171,6 +183,7 @@ function onServerEvent(event) {
       break;
     case 'assistant.text.delta':
       appendAssistantStream(event.text);
+      setChannelLinkStatus('OpenClaw 正在返回文本，TTS 正在合成');
       log(`assistant.text.delta: ${event.text}`);
       break;
     case 'audio.output.delta':
@@ -210,6 +223,10 @@ async function startRecording() {
   }
 
   realtimeDraft = '';
+  lastLocalAsrInterimText = '';
+  lastLocalAsrInterimSentAt = 0;
+  lastLocalAsrFinalText = '';
+  hasLocalAsrFinalSent = false;
   liveTranscriptEl.textContent = '识别中...';
 
   try {
@@ -492,6 +509,36 @@ function startSpeechDebug() {
 
     const content = `${realtimeDraft}${interim}`.trim();
     liveTranscriptEl.textContent = content || '识别中...';
+
+    if (asrProvider === 'browser') {
+      const finalChunk = finalText.trim();
+      if (finalChunk && finalChunk !== lastLocalAsrFinalText) {
+        send({
+          type: 'input.asr.local',
+          text: finalChunk,
+          isFinal: true
+        });
+        lastLocalAsrFinalText = finalChunk;
+        hasLocalAsrFinalSent = true;
+        log(`发送 input.asr.local(final): ${finalChunk}`);
+      }
+
+      const interimChunk = interim.trim();
+      const now = Date.now();
+      if (
+        interimChunk &&
+        interimChunk !== lastLocalAsrInterimText &&
+        now - lastLocalAsrInterimSentAt >= 160
+      ) {
+        send({
+          type: 'input.asr.local',
+          text: interimChunk,
+          isFinal: false
+        });
+        lastLocalAsrInterimText = interimChunk;
+        lastLocalAsrInterimSentAt = now;
+      }
+    }
   };
 
   speechRecognition.onerror = (event) => {
@@ -532,6 +579,9 @@ function sendLocalAsrIfAvailable() {
   if (asrProvider !== 'browser') {
     return;
   }
+  if (hasLocalAsrFinalSent) {
+    return;
+  }
 
   const liveText = (liveTranscriptEl.textContent ?? '').trim();
   const localText =
@@ -543,11 +593,16 @@ function sendLocalAsrIfAvailable() {
     log('本地 ASR 文本为空，跳过 input.asr.local');
     return;
   }
+  if (localText === lastLocalAsrFinalText) {
+    return;
+  }
 
   send({
     type: 'input.asr.local',
     text: localText,
     isFinal: true
   });
+  lastLocalAsrFinalText = localText;
+  hasLocalAsrFinalSent = true;
   log(`发送 input.asr.local: ${localText}`);
 }

@@ -14,7 +14,7 @@
 1. 插件与音频服务建立 WebSocket 连接
 2. 插件发送 `channel.start`
 3. 音频服务返回 `channel.started`
-4. 插件转发用户输入（`input.text` 或 `input.audio.*`）
+4. 插件转发文本/音频输入（`input.assistant.text` / `input.text` / `input.audio.*`）
 5. 音频服务持续返回：
    - `asr.text`
    - `assistant.text.delta`
@@ -43,6 +43,19 @@
   "text": "你好，帮我总结今天的会议"
 }
 ```
+
+`input.text` 语义：用户输入文本，服务端会调用 OpenClaw（或配置的上游 LLM）获取流式回复，再做 TTS。
+
+### input.assistant.text
+
+```json
+{
+  "type": "input.assistant.text",
+  "text": "这是 OpenClaw 已生成的回复文本"
+}
+```
+
+`input.assistant.text` 语义：文本已由 OpenClaw 生成，服务端只做流式 TTS，不再反向调用 OpenClaw。
 
 ### input.audio.chunk
 
@@ -92,7 +105,8 @@
   "sessionId": "uuid",
   "voice": "Bunny",
   "sampleRate": 24000,
-  "asrProvider": "browser"
+  "asrProvider": "browser",
+  "llmEnabled": true
 }
 ```
 

@@ -10,6 +10,8 @@ import {
   type AsrProvider,
   type RealtimeAsrClient
 } from './asr/realtime-asr-client.js';
+import { DisabledOpenClawAdapter } from './channel/openclaw-adapter.js';
+import { OpenClawHttpAdapter } from './channel/openclaw-http-adapter.js';
 import { VoiceChannelPlugin } from './channel/voice-channel-plugin.js';
 import type { TtsMode } from './tts/aliyun-tts-client.js';
 
@@ -38,6 +40,15 @@ const ttsVoice = envWithFallback('TTS_VOICE', 'ALIYUN_TTS_VOICE') ?? 'Bunny';
 const ttsFormat = (envWithFallback('TTS_FORMAT', 'ALIYUN_TTS_FORMAT') as 'pcm' | undefined) ?? 'pcm';
 const ttsSampleRate = Number(envWithFallback('TTS_SAMPLE_RATE', 'ALIYUN_TTS_SAMPLE_RATE') ?? 24000);
 const ttsMode = parseTtsMode(envWithFallback('TTS_MODE', 'ALIYUN_TTS_MODE'));
+const openclawGatewayBaseUrl =
+  process.env.OPENCLAW_GATEWAY_BASE_URL?.trim() ?? process.env.OPENCLAW_BASE_URL?.trim() ?? '';
+const openclawGatewayToken =
+  process.env.OPENCLAW_GATEWAY_TOKEN?.trim() ?? process.env.OPENCLAW_API_KEY?.trim() ?? '';
+const openclawAgentId = process.env.OPENCLAW_AGENT_ID?.trim() || 'main';
+const openclawRequestModel = process.env.OPENCLAW_REQUEST_MODEL?.trim() || 'openclaw';
+const openclawChatPath = process.env.OPENCLAW_CHAT_PATH?.trim() || '/v1/chat/completions';
+const openclawTimeoutMs = Number(process.env.OPENCLAW_TIMEOUT_MS ?? 45_000);
+const openclawSystemPrompt = process.env.OPENCLAW_SYSTEM_PROMPT?.trim() || undefined;
 
 if (!speechApiKey) {
   throw new Error('SPEECH_API_KEY is required');
@@ -51,6 +62,17 @@ const asrClient = createAsrClient({
   language: asrLanguage,
   sampleRate: asrSampleRate
 });
+const openclawAdapter = openclawGatewayBaseUrl
+  ? new OpenClawHttpAdapter({
+      baseUrl: openclawGatewayBaseUrl,
+      apiKey: openclawGatewayToken || undefined,
+      agentId: openclawAgentId,
+      model: openclawRequestModel,
+      chatPath: openclawChatPath,
+      timeoutMs: Number.isFinite(openclawTimeoutMs) ? openclawTimeoutMs : 45_000,
+      systemPrompt: openclawSystemPrompt
+    })
+  : new DisabledOpenClawAdapter();
 
 const server = createServer(async (req, res) => {
   try {
@@ -73,6 +95,7 @@ const channelPlugin = new VoiceChannelPlugin({
   idleTimeoutMs,
   asrProvider,
   asr: asrClient,
+  openclaw: openclawAdapter,
   aliyun: {
     apiKey: speechApiKey,
     url: ttsUrl,
@@ -94,6 +117,9 @@ server.listen(port, host, () => {
   console.log(`[voice-channel] websocket: ws://localhost:${port}/channel/voice/ws?token=${token}`);
   console.log(
     `[voice-channel] mode: HOST=${host} ASR_PROVIDER=${asrProvider} ASR_MODEL=${asrModel} ASR_URL=${asrUrl} TTS_MODE=${ttsMode} TTS_URL=${ttsUrl}`
+  );
+  console.log(
+    `[voice-channel] openclaw: enabled=${openclawAdapter.enabled} gatewayBaseUrl=${openclawGatewayBaseUrl || '-'} agentId=${openclawAgentId} chatPath=${openclawChatPath}`
   );
   if (asrProvider === 'browser') {
     console.log(

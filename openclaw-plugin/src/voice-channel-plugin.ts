@@ -157,7 +157,7 @@ export function createVoiceChannelPlugin(config: VoiceChannelPluginConfig): any 
           );
           logInfo(
             accountId,
-            `STARTED sessionId=${started.sessionId} voice=${started.voice ?? runtimeAccount.voice} sampleRate=${started.sampleRate ?? runtimeAccount.ttsSampleRate} asrProvider=${started.asrProvider ?? '-'}`
+            `STARTED sessionId=${started.sessionId} voice=${started.voice ?? runtimeAccount.voice} sampleRate=${started.sampleRate ?? runtimeAccount.ttsSampleRate} asrProvider=${started.asrProvider ?? '-'} llmEnabled=${started.llmEnabled ?? '-'}`
           );
         } catch (error) {
           client.off('event', listener);
@@ -199,7 +199,7 @@ export function createVoiceChannelPlugin(config: VoiceChannelPluginConfig): any 
           throw new Error(`Voice account ${accountId} is not started`);
         }
 
-        client.sendText(text);
+        client.sendAssistantText(text);
         return { ok: true };
       }
     }

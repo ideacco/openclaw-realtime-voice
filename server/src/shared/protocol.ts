@@ -52,6 +52,11 @@ export interface InputTextEvent {
   text: string;
 }
 
+export interface InputAssistantTextEvent {
+  type: 'input.assistant.text';
+  text: string;
+}
+
 export interface ChannelEndEvent {
   type: 'channel.end';
 }
@@ -65,6 +70,7 @@ export type ClientEvent =
   | InputAudioCommitEvent
   | InputAsrLocalEvent
   | InputTextEvent
+  | InputAssistantTextEvent
   | ChannelEndEvent;
 
 export interface AgentTextDeltaEvent {
@@ -144,6 +150,7 @@ export interface ChannelStartedEvent {
   voice: string;
   sampleRate: number;
   asrProvider?: 'browser' | 'aliyun';
+  llmEnabled?: boolean;
 }
 
 export interface SessionEndedEvent {
@@ -249,6 +256,15 @@ export function parseClientEvent(raw: string): ClientEvent {
       }
       return {
         type: 'input.text',
+        text: event.text
+      };
+    }
+    case 'input.assistant.text': {
+      if (typeof event.text !== 'string' || !event.text.trim()) {
+        throw new Error('input.assistant.text.text is required');
+      }
+      return {
+        type: 'input.assistant.text',
         text: event.text
       };
     }

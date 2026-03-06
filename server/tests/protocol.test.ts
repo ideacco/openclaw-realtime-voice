@@ -47,6 +47,16 @@ describe('protocol parsing', () => {
     });
   });
 
+  it('parses input.assistant.text', () => {
+    const event = parseClientEvent(
+      JSON.stringify({ type: 'input.assistant.text', text: '这是 OpenClaw 的回复' })
+    );
+    expect(event).toEqual({
+      type: 'input.assistant.text',
+      text: '这是 OpenClaw 的回复'
+    });
+  });
+
   it('rejects invalid payload', () => {
     expect(() => parseClientEvent('{')).toThrow();
     expect(() => parseClientEvent(JSON.stringify({ type: 'agent.input.text', text: '' }))).toThrow();

@@ -16,6 +16,7 @@
 - VAD 切分（`input.audio.chunk` -> 语音段）
 - ASR 提供方可切换：`browser` / `aliyun`
 - Assistant 流式 token 处理
+- 可选直连 OpenClaw Gateway 流式回复（`input.text` -> OpenClaw -> TTS）
 - 句子切分后低延迟 TTS
 - 阿里云实时 TTS（新 Realtime 协议）
 - Web 端流式音频播放
@@ -144,10 +145,21 @@ export https_proxy=http://127.0.0.1:7897 http_proxy=http://127.0.0.1:7897 all_pr
 - `TTS_FORMAT`：当前支持 `pcm`
 - `TTS_SAMPLE_RATE`：输出采样率（如 `24000`）
 - `TTS_MODE`：`server_commit` 或 `commit`
+- `OPENCLAW_GATEWAY_BASE_URL`：OpenClaw Gateway HTTP 地址（用于 `input.text`）
+- `OPENCLAW_GATEWAY_TOKEN`：OpenClaw Gateway Bearer Token（可选）
+- `OPENCLAW_AGENT_ID`：OpenClaw agent id（默认 `main`）
+- `OPENCLAW_REQUEST_MODEL`：请求里的 model 字段，通常保持 `openclaw`
+- `OPENCLAW_CHAT_PATH`：Chat Completions 路径（默认 `/v1/chat/completions`）
+- `OPENCLAW_TIMEOUT_MS`：Gateway 请求超时毫秒数
 
 兼容说明：
 
 - 旧的 `ALIYUN_*` 变量仍可作为回退读取。
+
+文本事件路由：
+
+- `input.text`：用户文本 -> OpenClaw Gateway 流式回复 -> 实时 TTS
+- `input.assistant.text`：文本已由 OpenClaw 生成 -> 仅做实时 TTS
 
 ASR 模式示例：
 

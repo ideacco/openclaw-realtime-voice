@@ -12,6 +12,7 @@ export interface ChannelStartedPayload {
   voice?: string;
   sampleRate?: number;
   asrProvider?: string;
+  llmEnabled?: boolean;
 }
 
 export type AudioServiceEvent =
@@ -105,6 +106,10 @@ export class AudioServiceClient extends EventEmitter {
 
   sendText(text: string): void {
     this.send({ type: 'input.text', text });
+  }
+
+  sendAssistantText(text: string): void {
+    this.send({ type: 'input.assistant.text', text });
   }
 
   endChannel(): void {

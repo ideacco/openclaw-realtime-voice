@@ -14,6 +14,7 @@ import { VoiceAgent } from '../pipeline/voice-agent.js';
 import { AliyunTtsClient, type TtsMode, type TtsSessionConfig } from '../tts/aliyun-tts-client.js';
 import { SimpleVadEngine, type AudioChunk } from '../vad/simple-vad.js';
 import type { AsrProvider, RealtimeAsrClient } from '../asr/realtime-asr-client.js';
+import type { OpenClawAdapter } from './openclaw-adapter.js';
 
 interface VoiceChannelPluginOptions {
   server: Server;
@@ -21,6 +22,7 @@ interface VoiceChannelPluginOptions {
   idleTimeoutMs: number;
   asrProvider: AsrProvider;
   asr: RealtimeAsrClient;
+  openclaw: OpenClawAdapter;
   aliyun: {
     apiKey: string;
     url: string;
@@ -42,6 +44,7 @@ interface SessionState {
   idleTimer: NodeJS.Timeout;
   queue: Promise<void>;
   pendingLocalAsrText: string;
+  lastLocalAsrFinalText: string;
 }
 
 export class VoiceChannelPlugin {
@@ -134,8 +137,11 @@ export class VoiceChannelPlugin {
         this.onLocalAsrText(ws, event.text, event.isFinal ?? true);
         break;
       case 'input.text':
+        this.onTextInput(ws, event.text, 'user');
+        break;
       case 'agent.input.text':
-        this.onTextInput(ws, event.text);
+      case 'input.assistant.text':
+        this.onTextInput(ws, event.text, 'assistant');
         break;
       case 'channel.end':
       case 'session.end':
@@ -200,7 +206,8 @@ export class VoiceChannelPlugin {
       vad: new SimpleVadEngine(),
       idleTimer: this.makeIdleTimer(ws),
       queue: Promise.resolve(),
-      pendingLocalAsrText: ''
+      pendingLocalAsrText: '',
+      lastLocalAsrFinalText: ''
     };
 
     this.sessions.set(ws, state);
@@ -210,7 +217,8 @@ export class VoiceChannelPlugin {
       sessionId,
       voice: ttsConfig.voice,
       sampleRate: ttsConfig.sampleRate,
-      asrProvider: this.options.asrProvider
+      asrProvider: this.options.asrProvider,
+      llmEnabled: this.options.openclaw.enabled
     });
   }
 
@@ -223,6 +231,11 @@ export class VoiceChannelPlugin {
     const state = this.sessions.get(ws);
     if (!state) {
       this.sendError(ws, 'BAD_REQUEST', 'Session not started', false);
+      return;
+    }
+
+    if (this.options.asrProvider === 'browser') {
+      this.touch(ws);
       return;
     }
 
@@ -268,6 +281,11 @@ export class VoiceChannelPlugin {
       return;
     }
 
+    if (this.options.asrProvider === 'browser') {
+      this.touch(ws);
+      return;
+    }
+
     const segment = state.vad.flush();
     if (segment.length === 0) {
       return;
@@ -285,7 +303,7 @@ export class VoiceChannelPlugin {
     });
   }
 
-  private onTextInput(ws: WebSocket, text: string): void {
+  private onTextInput(ws: WebSocket, text: string, source: 'user' | 'assistant'): void {
     const state = this.sessions.get(ws);
     if (!state) {
       this.sendError(ws, 'BAD_REQUEST', 'Session not started', false);
@@ -293,7 +311,15 @@ export class VoiceChannelPlugin {
     }
 
     this.enqueue(state, async () => {
-      await this.processUserText(state, text.trim());
+      const normalized = text.trim();
+      if (!normalized) {
+        return;
+      }
+      if (source === 'assistant') {
+        await this.processAssistantText(state, normalized);
+        return;
+      }
+      await this.processUserText(state, normalized);
     });
   }
 
@@ -303,20 +329,47 @@ export class VoiceChannelPlugin {
       this.sendError(ws, 'BAD_REQUEST', 'Session not started', false);
       return;
     }
+    if (this.options.asrProvider !== 'browser') {
+      return;
+    }
 
     const next = text.trim();
     if (!next) {
       return;
     }
 
-    if (isFinal) {
+    this.touch(ws);
+
+    if (!isFinal) {
+      if (state.pendingLocalAsrText === next) {
+        return;
+      }
       state.pendingLocalAsrText = next;
-      this.touch(ws);
+      this.send(ws, {
+        type: 'asr.text',
+        sessionId: state.sessionId,
+        text: next,
+        isFinal: false
+      });
       return;
     }
 
-    state.pendingLocalAsrText = `${state.pendingLocalAsrText}${next}`.trim();
-    this.touch(ws);
+    if (state.lastLocalAsrFinalText === next) {
+      return;
+    }
+
+    state.lastLocalAsrFinalText = next;
+    state.pendingLocalAsrText = '';
+    this.send(ws, {
+      type: 'asr.text',
+      sessionId: state.sessionId,
+      text: next,
+      isFinal: true
+    });
+
+    this.enqueue(state, async () => {
+      await this.processUserText(state, next);
+    });
   }
 
   private onChannelEnd(ws: WebSocket): void {
@@ -334,7 +387,9 @@ export class VoiceChannelPlugin {
         await task();
       })
       .catch((error) => {
-        this.sendError(state.ws, 'INTERNAL_ERROR', toError(error).message, true, state.sessionId);
+        const message = toError(error).message;
+        const code: ErrorCode = isUpstreamFailure(message) ? 'UPSTREAM_ERROR' : 'INTERNAL_ERROR';
+        this.sendError(state.ws, code, message, true, state.sessionId);
       });
   }
 
@@ -343,26 +398,12 @@ export class VoiceChannelPlugin {
     chunks: AudioChunk[],
     _reason: 'manual' | 'vad'
   ): Promise<void> {
-    let text = '';
     if (this.options.asrProvider === 'browser') {
-      text = state.pendingLocalAsrText.trim();
-      state.pendingLocalAsrText = '';
+      return;
     }
 
+    const text = (await this.options.asr.transcribe(chunks)).trim();
     if (!text) {
-      text = (await this.options.asr.transcribe(chunks)).trim();
-    }
-
-    if (!text) {
-      if (this.options.asrProvider === 'browser') {
-        this.sendError(
-          state.ws,
-          'BAD_REQUEST',
-          'Local ASR text is empty. Check browser SpeechRecognition support and permissions.',
-          false,
-          state.sessionId
-        );
-      }
       return;
     }
 
@@ -392,6 +433,24 @@ export class VoiceChannelPlugin {
       }
     });
 
+    await state.agent.startTurn(state.voiceConfig);
+
+    for await (const token of this.options.openclaw.streamAssistantReply({
+      sessionId: state.sessionId,
+      text
+    })) {
+      state.agent.onToken(token);
+    }
+
+    await state.agent.endTurn();
+  }
+
+  private async processAssistantText(state: SessionState, text: string): Promise<void> {
+    if (!text) {
+      return;
+    }
+
+    this.touch(state.ws);
     await state.agent.startTurn(state.voiceConfig);
 
     for (const token of [...text]) {
@@ -464,4 +523,15 @@ export class VoiceChannelPlugin {
 
 function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
+}
+
+function isUpstreamFailure(message: string): boolean {
+  const text = message.toLowerCase();
+  return (
+    text.includes('aliyun') ||
+    text.includes('openclaw') ||
+    text.includes('websocket') ||
+    text.includes('chat request') ||
+    text.includes('transcription')
+  );
 }

@@ -20,6 +20,7 @@ export type AudioServiceEvent =
   | { type: 'connected' }
   | ChannelStartedPayload
   | { type: 'assistant.text.delta'; text: string }
+  | { type: 'message.created'; sessionId: string; message: { role: 'user'; content: string } }
   | { type: 'audio.output.delta'; data: string; sampleRate: number }
   | { type: 'audio.output.completed' }
   | { type: 'asr.text'; text: string; isFinal: boolean }

@@ -172,6 +172,33 @@ export function createVoiceChannelPlugin(config: VoiceChannelPluginConfig): any 
                 runtimeContext: runtimeContextByAccount.get(accountId)
               });
             }, inboundQueueByAccount);
+            return;
+          }
+          if (event?.type === 'message.created') {
+            const text = String(event?.message?.content ?? '').trim();
+            if (!text) {
+              return;
+            }
+            const last = lastFinalAsrByAccount.get(accountId);
+            const now = Date.now();
+            if (last && last.text === text && now - last.at < 1200) {
+              return;
+            }
+            lastFinalAsrByAccount.set(accountId, { text, at: now });
+            enqueueInboundAsr(
+              accountId,
+              async () => {
+                await dispatchAsrToOpenClaw({
+                  accountId,
+                  text,
+                  targetSessionId: String(event.sessionId ?? ''),
+                  client,
+                  runtimeContext: runtimeContextByAccount.get(accountId)
+                });
+              },
+              inboundQueueByAccount
+            );
+            return;
           }
         };
         client.on('event', listener);

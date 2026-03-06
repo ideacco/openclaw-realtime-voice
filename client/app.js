@@ -5,7 +5,6 @@ const disconnectBtn = document.getElementById('disconnectBtn');
 const recordBtn = document.getElementById('recordBtn');
 const stopBtn = document.getElementById('stopBtn');
 const speakBtn = document.getElementById('speakBtn');
-const endBtn = document.getElementById('endBtn');
 const tokenInput = document.getElementById('token');
 const inputText = document.getElementById('inputText');
 const statusEl = document.getElementById('status');
@@ -67,7 +66,6 @@ connectBtn.addEventListener('click', () => {
     disconnectBtn.disabled = false;
     recordBtn.disabled = false;
     speakBtn.disabled = false;
-    endBtn.disabled = false;
 
     send({
       type: 'channel.start',
@@ -90,7 +88,6 @@ connectBtn.addEventListener('click', () => {
     recordBtn.disabled = true;
     stopBtn.disabled = true;
     speakBtn.disabled = true;
-    endBtn.disabled = true;
     sessionId = null;
     llmEnabled = false;
     llmMode = 'unknown';
@@ -139,13 +136,6 @@ speakBtn.addEventListener('click', () => {
 
   send({ type: 'input.text', text });
   log(`发送 input.text: ${text}`);
-});
-
-endBtn.addEventListener('click', async () => {
-  send({ type: 'channel.end' });
-  await stopRecording();
-  await player.close();
-  log('发送 channel.end');
 });
 
 function onServerEvent(event) {

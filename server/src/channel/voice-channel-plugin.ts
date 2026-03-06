@@ -334,7 +334,7 @@ export class VoiceChannelPlugin {
         await this.processAssistantText(state, normalized);
         return;
       }
-      await this.processUserText(state, normalized);
+      await this.processUserText(state, normalized, 'text');
     });
   }
 
@@ -402,7 +402,7 @@ export class VoiceChannelPlugin {
     this.emitAsrText(state, next, true);
 
     this.enqueue(state, async () => {
-      await this.processUserText(state, next);
+      await this.processUserText(state, next, 'asr');
     });
   }
 
@@ -443,24 +443,39 @@ export class VoiceChannelPlugin {
 
     this.emitAsrText(state, text, true);
 
-    await this.processUserText(state, text);
+    await this.processUserText(state, text, 'asr');
   }
 
-  private async processUserText(state: SessionState, text: string): Promise<void> {
+  private async processUserText(
+    state: SessionState,
+    text: string,
+    source: 'text' | 'asr'
+  ): Promise<void> {
     if (!text) {
       return;
     }
 
     this.touch(state.ws);
 
-    this.send(state.ws, {
+    const createdEvent: ServerEvent = {
       type: 'message.created',
       sessionId: state.sessionId,
       message: {
         role: 'user',
         content: text
       }
-    });
+    };
+    this.send(state.ws, createdEvent);
+
+    if (this.options.openclawMode === 'plugin' && state.clientRole === 'web') {
+      for (const peer of this.sessions.values()) {
+        if (peer === state || peer.clientRole !== 'plugin') {
+          continue;
+        }
+        this.send(peer.ws, createdEvent);
+        this.touch(peer.ws);
+      }
+    }
 
     if (this.options.openclawMode !== 'gateway') {
       // In channel-plugin mode, OpenClaw reply is produced by the OpenClaw channel plugin

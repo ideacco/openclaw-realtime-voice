@@ -33,7 +33,7 @@ const STORAGE_KEYS = {
 const DEFAULT_WAKE_WORDS = '你好老六';
 const DEFAULT_SILENCE_MS = 1200;
 const TURN_MAX_DURATION_MS = 12_000;
-const WAKE_RESUME_DELAY_MS = 400;
+const WAKE_RESUME_DELAY_MS = 1200;
 const WAKE_CAPTURE_PRIMING_MS = 1400;
 const WAKE_MIN_CAPTURE_MS = 2200;
 const WAKE_RETRIGGER_GUARD_MS = 2500;
@@ -667,6 +667,7 @@ function resumeWakeAfterTurn(reason) {
   if (wakeModeEnabled) {
     setVoiceState(STATE.WAKE_IDLE, '待命：等待唤醒词');
     setLiveTranscript('（待命中，等待唤醒词）');
+    restartWakeRecognition();
     log(`wake.resumed reason=${reason}`);
   } else {
     setVoiceState(STATE.MANUAL_READY, '唤醒模式关闭，可手动录音');
@@ -674,6 +675,35 @@ function resumeWakeAfterTurn(reason) {
   }
 
   refreshControls();
+}
+
+function restartWakeRecognition() {
+  if (!speechRecognition || !speechRecognitionActive) {
+    return;
+  }
+
+  speechRecognitionRestarting = true;
+  try {
+    speechRecognition.stop();
+  } catch {
+    speechRecognitionRestarting = false;
+    return;
+  }
+
+  window.setTimeout(() => {
+    if (!speechRecognition || !speechRecognitionActive || speechRecognitionBlocked || !isConnected()) {
+      speechRecognitionRestarting = false;
+      return;
+    }
+
+    try {
+      speechRecognition.start();
+    } catch {
+      // noop
+    } finally {
+      speechRecognitionRestarting = false;
+    }
+  }, 120);
 }
 
 function canDetectWakeWord() {
@@ -748,6 +778,7 @@ function ensureWakeRecognition() {
     if (candidate && canDetectWakeWord()) {
       const detected = findWakeKeyword(candidate);
       if (detected) {
+        lastWakeDetectedAt = Date.now();
         void beginTurn('wake', detected);
         return;
       }
@@ -774,6 +805,9 @@ function ensureWakeRecognition() {
   };
 
   speechRecognition.onend = () => {
+    if (speechRecognitionRestarting) {
+      return;
+    }
     if (!speechRecognitionActive || speechRecognitionBlocked || !isConnected()) {
       return;
     }
@@ -796,6 +830,7 @@ function ensureWakeRecognition() {
 
 function stopWakeRecognition() {
   speechRecognitionActive = false;
+  speechRecognitionRestarting = false;
   if (!speechRecognition) {
     return;
   }

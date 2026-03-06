@@ -36,6 +36,17 @@ describe('protocol parsing', () => {
     });
   });
 
+  it('parses input.asr.local', () => {
+    const event = parseClientEvent(
+      JSON.stringify({ type: 'input.asr.local', text: '你好，这是本地识别', isFinal: true })
+    );
+    expect(event).toEqual({
+      type: 'input.asr.local',
+      text: '你好，这是本地识别',
+      isFinal: true
+    });
+  });
+
   it('rejects invalid payload', () => {
     expect(() => parseClientEvent('{')).toThrow();
     expect(() => parseClientEvent(JSON.stringify({ type: 'agent.input.text', text: '' }))).toThrow();

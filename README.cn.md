@@ -14,7 +14,7 @@
 - 实时语音会话 WebSocket 入口（`/channel/voice/ws`）
 - 浏览器音频分片上传
 - VAD 切分（`input.audio.chunk` -> 语音段）
-- ASR 抽象层（当前为 mock 实现）
+- ASR 提供方可切换：`mock` / `browser` / `aliyun`
 - Assistant 流式 token 处理
 - 句子切分后低延迟 TTS
 - 阿里云实时 TTS（新 Realtime 协议）
@@ -36,7 +36,8 @@
 
 - `server/src/channel/voice-channel-plugin.ts`：会话编排与 WS 事件路由
 - `server/src/vad/simple-vad.ts`：基于静音/能量阈值切分
-- `server/src/asr/realtime-asr-client.ts`：ASR 接口 + mock 实现
+- `server/src/asr/realtime-asr-client.ts`：ASR 接口 + mock/browser 实现
+- `server/src/asr/aliyun-realtime-asr-client.ts`：阿里云实时 ASR 客户端
 - `server/src/tts/aliyun-tts-client.ts`：阿里云实时 TTS 客户端
 - `server/src/pipeline/voice-agent.ts`：token 到 TTS 的流式控制器
 
@@ -132,7 +133,11 @@ export https_proxy=http://127.0.0.1:7897 http_proxy=http://127.0.0.1:7897 all_pr
 在 `server/.env` 中使用通用变量：
 
 - `SPEECH_API_KEY`：语音服务密钥
+- `ASR_PROVIDER`：`mock` / `browser` / `aliyun`
+- `ASR_URL`：实时 ASR WebSocket 地址
 - `ASR_MODEL`：ASR 模型名
+- `ASR_LANGUAGE`：识别语言（默认 `zh`）
+- `ASR_SAMPLE_RATE`：ASR 输入采样率（默认 `16000`）
 - `TTS_URL`：实时 TTS WebSocket 地址
 - `TTS_MODEL`：实时 TTS 模型名
 - `TTS_VOICE`：音色
@@ -140,11 +145,17 @@ export https_proxy=http://127.0.0.1:7897 http_proxy=http://127.0.0.1:7897 all_pr
 - `TTS_SAMPLE_RATE`：输出采样率（如 `24000`）
 - `TTS_MODE`：`server_commit` 或 `commit`
 - `MOCK_TTS`：`true`/`false`
-- `MOCK_ASR`：`true`/`false`
+- `MOCK_ASR`：兼容旧开关（当未设置 `ASR_PROVIDER` 时生效）
 
 兼容说明：
 
 - 旧的 `ALIYUN_*` 变量仍可作为回退读取。
+
+ASR 模式示例：
+
+- 云端 ASR（阿里云）：`ASR_PROVIDER=aliyun`
+- 浏览器本地识别转写回传：`ASR_PROVIDER=browser`
+- 纯模拟：`ASR_PROVIDER=mock`
 
 ## 运行
 
@@ -206,7 +217,15 @@ npm run build
 5. 安装插件或修改配置后，重启 OpenClaw。
 6. 执行 `openclaw status`，确认配置校验通过。
 7. 如果提示 `must have required property 'audioServiceBaseUrl'` 或 `audioServiceToken`，说明 `plugins.entries.voice-channel.config` 下缺少必填字段。
-8. 如果提示 `Cannot find module 'ws'`，请在插件目录执行 `npm install` 后重启 OpenClaw。
+8. 如果提示 `No WebSocket implementation found`，通常是 OpenClaw 运行时 Node 版本过低。请升级到 Node 22+；如果必须用旧版 Node，再在插件目录手动安装 `ws` 作为兼容回退。
+
+握手成功判据（OpenClaw 日志）：
+
+- `[voice-channel][default] CONNECTING ...`
+- `[voice-channel][default] CONNECTED websocket`
+- `[voice-channel][default] STARTED sessionId=...`
+
+只有看到 `STARTED sessionId=...`，才表示频道与音频服务握手完成。
 
 ## Docker Compose（可选）
 
@@ -217,13 +236,12 @@ docker compose up --build
 
 ## 当前限制
 
-- 真实 ASR 客户端尚未接入（当前会 fallback 到 mock）。
+- `browser` ASR 依赖前端发送 `input.asr.local`，并取决于浏览器 `SpeechRecognition` 能力。
 - `openclaw-plugin/` 为骨架实现，需按你的 OpenClaw 版本调整。
-- 实时语音文本调试面板依赖浏览器 `SpeechRecognition` 支持。
+- `aliyun` ASR 依赖阿里云实时接口可用性与账号权限。
 
 ## 后续计划
 
-- 接入真实 ASR（阿里云实时 ASR）
 - 增加 OpenAI 厂商实现
 - 支持全双工打断（barge-in）
 - 增加生产级观测与重试策略

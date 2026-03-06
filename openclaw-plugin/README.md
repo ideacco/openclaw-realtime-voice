@@ -47,12 +47,25 @@
 
 ## 常见问题
 
-- `Error: Cannot find module 'ws'`
-  - 原因：插件目录未安装依赖
-  - 处理：进入插件目录执行 `npm install` 后重启 OpenClaw
+- `No WebSocket implementation found`
+  - 原因：运行时没有全局 `WebSocket`（通常是 Node 版本过低）
+  - 处理：升级到 Node 22+；若必须使用旧版 Node，再手动安装 `ws` 作为兼容回退
 - `refresh failed: accountIds is not iterable`
   - 原因：使用了旧插件代码（`listAccountIds` 返回 Promise）
   - 处理：同步最新插件代码后重启 OpenClaw
 - `TypeError: Cannot read properties of undefined (reading 'nativeCommands')`
   - 原因：`registerChannel` 注册参数形态不匹配
   - 处理：同步最新插件代码后重启 OpenClaw（已做新旧版本兼容）
+
+## 如何确认握手成功
+
+插件现在会输出明确的握手阶段日志（OpenClaw 网关日志中可见）：
+
+- `[voice-channel][default] CONNECTING ws://...`
+- `[voice-channel][default] CONNECTED websocket`
+- `[voice-channel][default] STARTED sessionId=... asrProvider=...`
+
+判定标准：
+
+- 出现 `STARTED sessionId=...` 才代表“OpenClaw 频道已与音频服务完成握手”。
+- 如果失败，会输出 `FAILED ...`，并在 OpenClaw 中看到 channel 启动失败。

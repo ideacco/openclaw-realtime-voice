@@ -14,7 +14,7 @@ This repository is designed to help you build a ChatGPT Voice-like flow on top o
 - Realtime websocket voice session endpoint (`/channel/voice/ws`)
 - Audio chunk ingestion from browser client
 - VAD segmentation pipeline (`input.audio.chunk` -> segment)
-- ASR abstraction with pluggable implementation (currently mock implementation)
+- Switchable ASR providers: `mock` / `browser` / `aliyun`
 - Streaming assistant token handling
 - Sentence segmentation for low-latency TTS
 - Aliyun realtime TTS integration (new realtime protocol)
@@ -36,7 +36,8 @@ Key modules:
 
 - `server/src/channel/voice-channel-plugin.ts`: session orchestration and websocket event router
 - `server/src/vad/simple-vad.ts`: segmentation by silence/energy
-- `server/src/asr/realtime-asr-client.ts`: ASR interface + mock implementation
+- `server/src/asr/realtime-asr-client.ts`: ASR interface + mock/browser implementation
+- `server/src/asr/aliyun-realtime-asr-client.ts`: Aliyun realtime ASR websocket client
 - `server/src/tts/aliyun-tts-client.ts`: Aliyun realtime TTS websocket client
 - `server/src/pipeline/voice-agent.ts`: token-to-tts streaming controller
 
@@ -130,7 +131,11 @@ At the end, print:
 Use `server/.env` with provider-neutral keys:
 
 - `SPEECH_API_KEY`: API key for speech provider
+- `ASR_PROVIDER`: `mock` / `browser` / `aliyun`
+- `ASR_URL`: realtime ASR websocket endpoint
 - `ASR_MODEL`: ASR model name
+- `ASR_LANGUAGE`: recognition language (default `zh`)
+- `ASR_SAMPLE_RATE`: ASR input sample rate (default `16000`)
 - `TTS_URL`: realtime TTS websocket endpoint
 - `TTS_MODEL`: realtime TTS model name
 - `TTS_VOICE`: voice profile
@@ -138,11 +143,17 @@ Use `server/.env` with provider-neutral keys:
 - `TTS_SAMPLE_RATE`: output sample rate, e.g. `24000`
 - `TTS_MODE`: `server_commit` or `commit`
 - `MOCK_TTS`: `true`/`false`
-- `MOCK_ASR`: `true`/`false`
+- `MOCK_ASR`: legacy compatibility switch (used only when `ASR_PROVIDER` is unset)
 
 Backward compatibility:
 
 - Legacy `ALIYUN_*` keys are still accepted as fallback.
+
+ASR mode examples:
+
+- Cloud ASR (Aliyun): `ASR_PROVIDER=aliyun`
+- Browser-local transcript passthrough: `ASR_PROVIDER=browser`
+- Pure mock mode: `ASR_PROVIDER=mock`
 
 ## Run
 
@@ -204,7 +215,15 @@ Manual test checklist:
 5. Restart OpenClaw after plugin install or config change.
 6. Run `openclaw status` and verify config is valid.
 7. If you see `must have required property 'audioServiceBaseUrl'` or `audioServiceToken`, those keys are missing in `plugins.entries.voice-channel.config`.
-8. If you see `Cannot find module 'ws'`, run `npm install` in the plugin directory and restart OpenClaw.
+8. If you see `No WebSocket implementation found`, your OpenClaw runtime Node version is likely too old. Upgrade to Node 22+; if you must stay on older Node, install `ws` manually in the plugin directory as a compatibility fallback.
+
+Handshake success criteria (OpenClaw logs):
+
+- `[voice-channel][default] CONNECTING ...`
+- `[voice-channel][default] CONNECTED websocket`
+- `[voice-channel][default] STARTED sessionId=...`
+
+Only `STARTED sessionId=...` means the voice channel has fully handshaked with the audio service.
 
 ## Docker Compose (Optional)
 
@@ -215,13 +234,12 @@ docker compose up --build
 
 ## Current Limitations
 
-- Real ASR provider implementation is not wired yet (mock fallback is used).
+- `browser` ASR depends on client-side `input.asr.local` and browser `SpeechRecognition` support.
 - `openclaw-plugin/` is a scaffold and may require adaptation to your OpenClaw runtime version.
-- Browser realtime transcript panel depends on `SpeechRecognition` browser support.
+- `aliyun` ASR depends on upstream service availability and model permissions.
 
 ## Roadmap
 
-- Implement real ASR client (Aliyun realtime ASR)
 - Add OpenAI provider implementations
 - Add full-duplex interruption (barge-in)
 - Add production-grade observability and retry policies

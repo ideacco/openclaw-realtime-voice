@@ -24,6 +24,30 @@
       </section>
 
       <section class="panel">
+        <h2>OpenClaw 频道联调状态</h2>
+        <div class="kv">
+          <span>链路状态</span>
+          <strong id="channelLinkStatus">未启动</strong>
+        </div>
+        <div class="kv">
+          <span>会话 ID</span>
+          <code id="channelSessionId">-</code>
+        </div>
+        <div class="kv">
+          <span>最后错误</span>
+          <span id="channelLastError" class="error-text">-</span>
+        </div>
+        <label>
+          Assistant 流式返回（聚合）
+          <pre id="assistantStream">-</pre>
+        </label>
+        <label>
+          最后一条服务端事件（JSON）
+          <pre id="lastServerEvent">-</pre>
+        </label>
+      </section>
+
+      <section class="panel">
         <h2>语音输入</h2>
         <div class="row">
           <button id="recordBtn" disabled>开始录音</button>

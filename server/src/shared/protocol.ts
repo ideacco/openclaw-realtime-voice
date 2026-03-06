@@ -41,6 +41,12 @@ export interface InputAudioCommitEvent {
   reason?: 'manual' | 'vad';
 }
 
+export interface InputAsrLocalEvent {
+  type: 'input.asr.local';
+  text: string;
+  isFinal?: boolean;
+}
+
 export interface InputTextEvent {
   type: 'input.text';
   text: string;
@@ -57,6 +63,7 @@ export type ClientEvent =
   | ChannelStartEvent
   | InputAudioChunkEvent
   | InputAudioCommitEvent
+  | InputAsrLocalEvent
   | InputTextEvent
   | ChannelEndEvent;
 
@@ -136,6 +143,7 @@ export interface ChannelStartedEvent {
   sessionId: string;
   voice: string;
   sampleRate: number;
+  asrProvider?: 'mock' | 'browser' | 'aliyun';
 }
 
 export interface SessionEndedEvent {
@@ -220,6 +228,19 @@ export function parseClientEvent(raw: string): ClientEvent {
       return {
         type: 'input.audio.commit',
         reason: event.reason as 'manual' | 'vad' | undefined
+      };
+    }
+    case 'input.asr.local': {
+      if (typeof event.text !== 'string' || !event.text.trim()) {
+        throw new Error('input.asr.local.text is required');
+      }
+      if (event.isFinal !== undefined && typeof event.isFinal !== 'boolean') {
+        throw new Error('input.asr.local.isFinal must be boolean');
+      }
+      return {
+        type: 'input.asr.local',
+        text: event.text,
+        isFinal: event.isFinal as boolean | undefined
       };
     }
     case 'input.text': {

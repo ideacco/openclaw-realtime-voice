@@ -50,8 +50,8 @@
 {
   "type": "input.audio.chunk",
   "data": "<base64>",
-  "encoding": "webm_opus",
-  "sampleRate": 48000
+  "encoding": "pcm_s16le",
+  "sampleRate": 16000
 }
 ```
 
@@ -61,6 +61,16 @@
 {
   "type": "input.audio.commit",
   "reason": "manual"
+}
+```
+
+### input.asr.local（可选，用于 browser/local ASR）
+
+```json
+{
+  "type": "input.asr.local",
+  "text": "浏览器本地识别文本",
+  "isFinal": true
 }
 ```
 
@@ -81,7 +91,8 @@
   "type": "channel.started",
   "sessionId": "uuid",
   "voice": "Bunny",
-  "sampleRate": 24000
+  "sampleRate": 24000,
+  "asrProvider": "browser"
 }
 ```
 

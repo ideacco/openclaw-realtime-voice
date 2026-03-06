@@ -4,7 +4,13 @@ import { readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MockRealtimeAsrClient } from './asr/realtime-asr-client.js';
+import { AliyunRealtimeAsrClient } from './asr/aliyun-realtime-asr-client.js';
+import {
+  BrowserRealtimeAsrClient,
+  MockRealtimeAsrClient,
+  type AsrProvider,
+  type RealtimeAsrClient
+} from './asr/realtime-asr-client.js';
 import { MockOpenClawAdapter } from './channel/mock-openclaw-adapter.js';
 import { VoiceChannelPlugin } from './channel/voice-channel-plugin.js';
 import type { TtsMode } from './tts/aliyun-tts-client.js';
@@ -19,9 +25,15 @@ const host = process.env.HOST ?? '0.0.0.0';
 const token = process.env.VOICE_GATEWAY_TOKEN ?? 'dev-token';
 const idleTimeoutMs = Number(process.env.VOICE_IDLE_TIMEOUT_MS ?? 60_000);
 const useMockTts = asBool(process.env.MOCK_TTS, true);
-const useMockAsr = asBool(process.env.MOCK_ASR, true);
+const legacyUseMockAsr = asBool(process.env.MOCK_ASR, true);
+const asrProvider = parseAsrProvider(process.env.ASR_PROVIDER) ?? (legacyUseMockAsr ? 'mock' : 'aliyun');
 const speechApiKey = envWithFallback('SPEECH_API_KEY', 'ALIYUN_API_KEY');
 const asrModel = envWithFallback('ASR_MODEL', 'ALIYUN_ASR_MODEL') ?? 'paraformer-realtime-v2';
+const asrUrl =
+  envWithFallback('ASR_URL', 'ALIYUN_ASR_URL') ??
+  'wss://dashscope.aliyuncs.com/api-ws/v1/realtime';
+const asrLanguage = process.env.ASR_LANGUAGE ?? 'zh';
+const asrSampleRate = Number(process.env.ASR_SAMPLE_RATE ?? 16000);
 const ttsUrl =
   envWithFallback('TTS_URL', 'ALIYUN_TTS_URL') ??
   'wss://dashscope.aliyuncs.com/api-ws/v1/realtime';
@@ -31,9 +43,18 @@ const ttsFormat = (envWithFallback('TTS_FORMAT', 'ALIYUN_TTS_FORMAT') as 'pcm' |
 const ttsSampleRate = Number(envWithFallback('TTS_SAMPLE_RATE', 'ALIYUN_TTS_SAMPLE_RATE') ?? 24000);
 const ttsMode = parseTtsMode(envWithFallback('TTS_MODE', 'ALIYUN_TTS_MODE'));
 
-if (!useMockTts && !speechApiKey) {
-  throw new Error('MOCK_TTS=false but SPEECH_API_KEY is missing');
+if ((!useMockTts || asrProvider === 'aliyun') && !speechApiKey) {
+  throw new Error('SPEECH_API_KEY is required when TTS or ASR uses cloud provider');
 }
+
+const asrClient = createAsrClient({
+  provider: asrProvider,
+  model: asrModel,
+  apiKey: speechApiKey,
+  url: asrUrl,
+  language: asrLanguage,
+  sampleRate: asrSampleRate
+});
 
 const server = createServer(async (req, res) => {
   try {
@@ -54,9 +75,8 @@ const channelPlugin = new VoiceChannelPlugin({
   server,
   token,
   idleTimeoutMs,
-  asr: new MockRealtimeAsrClient({
-    model: asrModel
-  }),
+  asrProvider,
+  asr: asrClient,
   openclaw: new MockOpenClawAdapter(),
   aliyun: {
     apiKey: speechApiKey,
@@ -79,11 +99,16 @@ server.listen(port, host, () => {
   }
   console.log(`[voice-channel] websocket: ws://localhost:${port}/channel/voice/ws?token=${token}`);
   console.log(
-    `[voice-channel] mode: HOST=${host} MOCK_TTS=${useMockTts} MOCK_ASR=${useMockAsr} ASR_MODEL=${asrModel} TTS_MODE=${ttsMode} TTS_URL=${ttsUrl}`
+    `[voice-channel] mode: HOST=${host} MOCK_TTS=${useMockTts} ASR_PROVIDER=${asrProvider} ASR_MODEL=${asrModel} ASR_URL=${asrUrl} TTS_MODE=${ttsMode} TTS_URL=${ttsUrl}`
   );
-  if (!useMockAsr) {
+  if (asrProvider === 'mock') {
     console.log(
-      `[voice-channel] WARN: real ASR client is not implemented yet, fallback to mock ASR (model=${asrModel})`
+      `[voice-channel] WARN: using mock ASR provider (model=${asrModel})`
+    );
+  }
+  if (asrProvider === 'browser') {
+    console.log(
+      '[voice-channel] WARN: browser ASR provider requires client to send input.asr.local text'
     );
   }
 });
@@ -167,6 +192,49 @@ function parseTtsMode(value: string | undefined): TtsMode {
 
 function envWithFallback(primary: string, legacy: string): string | undefined {
   return process.env[primary] ?? process.env[legacy];
+}
+
+function parseAsrProvider(value: string | undefined): AsrProvider | null {
+  if (!value) {
+    return null;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'mock') {
+    return 'mock';
+  }
+  if (normalized === 'browser' || normalized === 'local') {
+    return 'browser';
+  }
+  if (normalized === 'aliyun' || normalized === 'cloud') {
+    return 'aliyun';
+  }
+  return null;
+}
+
+function createAsrClient(options: {
+  provider: AsrProvider;
+  model: string;
+  apiKey?: string;
+  url: string;
+  language: string;
+  sampleRate: number;
+}): RealtimeAsrClient {
+  if (options.provider === 'mock') {
+    return new MockRealtimeAsrClient({ model: options.model });
+  }
+  if (options.provider === 'browser') {
+    return new BrowserRealtimeAsrClient({ model: options.model });
+  }
+  if (!options.apiKey) {
+    throw new Error('ASR_PROVIDER=aliyun requires SPEECH_API_KEY');
+  }
+  return new AliyunRealtimeAsrClient({
+    apiKey: options.apiKey,
+    url: options.url,
+    model: options.model,
+    language: options.language,
+    sampleRate: options.sampleRate
+  });
 }
 
 function firstLanIpv4(): string | null {

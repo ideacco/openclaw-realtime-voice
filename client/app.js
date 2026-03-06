@@ -13,6 +13,11 @@ const recordStatusEl = document.getElementById('recordStatus');
 const logEl = document.getElementById('log');
 const liveTranscriptEl = document.getElementById('liveTranscript');
 const finalTranscriptEl = document.getElementById('finalTranscript');
+const channelLinkStatusEl = document.getElementById('channelLinkStatus');
+const channelSessionIdEl = document.getElementById('channelSessionId');
+const channelLastErrorEl = document.getElementById('channelLastError');
+const assistantStreamEl = document.getElementById('assistantStream');
+const lastServerEventEl = document.getElementById('lastServerEvent');
 
 const player = new PcmAudioPlayer(24000);
 
@@ -20,9 +25,19 @@ let ws = null;
 let sessionId = null;
 let mediaStream = null;
 let mediaRecorder = null;
+let audioContext = null;
+let mediaSourceNode = null;
+let processorNode = null;
+let pcmGainNode = null;
+let pcmFlushTimer = null;
+let pcmFrames = [];
+let pcmByteLength = 0;
+let recordingMode = null;
 let speechRecognition = null;
 let speechRecognitionActive = false;
 let realtimeDraft = '';
+let assistantStream = '';
+let asrProvider = 'unknown';
 
 connectBtn.addEventListener('click', () => {
   const token = tokenInput.value.trim();
@@ -36,6 +51,12 @@ connectBtn.addEventListener('click', () => {
 
   ws.addEventListener('open', () => {
     status('已连接');
+    setChannelLinkStatus('WebSocket 已连接，等待 channel.started');
+    setChannelSessionId('-');
+    setChannelLastError('-');
+    assistantStream = '';
+    setAssistantStream('-');
+    setLastServerEvent('-');
     connectBtn.disabled = true;
     disconnectBtn.disabled = false;
     recordBtn.disabled = false;
@@ -55,6 +76,8 @@ connectBtn.addEventListener('click', () => {
 
   ws.addEventListener('close', async () => {
     status('未连接');
+    setChannelLinkStatus('连接已断开');
+    setChannelSessionId('-');
     connectBtn.disabled = false;
     disconnectBtn.disabled = true;
     recordBtn.disabled = true;
@@ -68,6 +91,7 @@ connectBtn.addEventListener('click', () => {
   });
 
   ws.addEventListener('error', () => {
+    setChannelLastError('WebSocket 连接错误');
     log('WebSocket error');
   });
 });
@@ -89,6 +113,7 @@ recordBtn.addEventListener('click', async () => {
 
 stopBtn.addEventListener('click', async () => {
   await stopRecording();
+  sendLocalAsrIfAvailable();
   send({ type: 'input.audio.commit', reason: 'manual' });
   log('录音提交 input.audio.commit');
 });
@@ -112,13 +137,24 @@ endBtn.addEventListener('click', async () => {
 });
 
 function onServerEvent(event) {
+  setLastServerEvent(formatEventForDebug(event));
+
   switch (event.type) {
     case 'channel.started':
+    case 'session.started':
       sessionId = event.sessionId;
+      asrProvider = event.asrProvider ?? asrProvider;
       status(`会话已启动 (${event.sessionId.slice(0, 8)})`);
-      log(`channel.started voice=${event.voice} sampleRate=${event.sampleRate}`);
+      setChannelLinkStatus(`频道会话已启动 (ASR=${asrProvider})`);
+      setChannelSessionId(event.sessionId);
+      assistantStream = '';
+      setAssistantStream('-');
+      log(
+        `${event.type} voice=${event.voice} sampleRate=${event.sampleRate} asrProvider=${event.asrProvider ?? '-'}`
+      );
       break;
     case 'vad.segment':
+      setChannelLinkStatus('音频分段已提交，等待 ASR/LLM/TTS');
       log(`vad.segment chunkCount=${event.chunkCount} reason=${event.reason}`);
       break;
     case 'asr.text':
@@ -126,23 +162,37 @@ function onServerEvent(event) {
       finalTranscriptEl.textContent = `服务端 ASR 结果：${event.text}`;
       break;
     case 'message.created':
+      setChannelLinkStatus('已触发 OpenClaw message 事件');
       log(`message.created: ${event.message.content}`);
       break;
+    case 'agent.text.delta':
+      appendAssistantStream(event.text);
+      log(`agent.text.delta: ${event.text}`);
+      break;
     case 'assistant.text.delta':
+      appendAssistantStream(event.text);
       log(`assistant.text.delta: ${event.text}`);
       break;
     case 'audio.output.delta':
+      setChannelLinkStatus('正在接收音频流');
       void player.enqueueBase64(event.data);
       break;
     case 'audio.output.completed':
+      setChannelLinkStatus('当前音频段播放完成');
       log('audio.output.completed');
       break;
     case 'channel.error':
-      log(`channel.error [${event.code}] ${event.message}`);
+    case 'session.error':
+      setChannelLinkStatus('链路异常');
+      setChannelLastError(`[${event.code}] ${event.message}`);
+      log(`${event.type} [${event.code}] ${event.message}`);
       break;
     case 'channel.ended':
+    case 'session.ended':
       log(`channel.ended ${event.sessionId}`);
       sessionId = null;
+      setChannelLinkStatus('会话已结束');
+      setChannelSessionId('-');
       break;
     default:
       log(`unknown event: ${JSON.stringify(event)}`);
@@ -150,13 +200,118 @@ function onServerEvent(event) {
 }
 
 async function startRecording() {
-  if (mediaRecorder) {
+  if (recordingMode) {
     return;
   }
 
-  if (!navigator.mediaDevices || !window.MediaRecorder) {
+  if (!navigator.mediaDevices) {
     log('当前浏览器不支持录音');
     return;
+  }
+
+  realtimeDraft = '';
+  liveTranscriptEl.textContent = '识别中...';
+
+  try {
+    await startPcmRecording();
+    recordingMode = 'pcm';
+    log('开始录音并推送音频分片 (PCM 16-bit)');
+  } catch (error) {
+    log(`PCM 录音启动失败，降级为 MediaRecorder: ${error?.message ?? String(error)}`);
+    await startMediaRecorderRecording();
+    recordingMode = 'webm';
+    log('开始录音并推送音频分片 (WebM Opus)');
+  }
+
+  startSpeechDebug();
+  recordStatus('录音中...');
+  recordBtn.disabled = true;
+  stopBtn.disabled = false;
+}
+
+async function stopRecording() {
+  if (recordingMode === 'pcm') {
+    stopPcmRecording();
+  } else if (recordingMode === 'webm') {
+    stopMediaRecorderRecording();
+  }
+
+  recordingMode = null;
+  recordStatus('空闲');
+  recordBtn.disabled = false;
+  stopBtn.disabled = true;
+  stopSpeechDebug();
+}
+
+async function startPcmRecording() {
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtx) {
+    throw new Error('AudioContext 不可用');
+  }
+  if (!AudioCtx.prototype.createScriptProcessor) {
+    throw new Error('ScriptProcessor 不可用');
+  }
+
+  mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  audioContext = new AudioCtx({ sampleRate: 16000 });
+  mediaSourceNode = audioContext.createMediaStreamSource(mediaStream);
+  processorNode = audioContext.createScriptProcessor(4096, 1, 1);
+  pcmGainNode = audioContext.createGain();
+  pcmGainNode.gain.value = 0;
+
+  pcmFrames = [];
+  pcmByteLength = 0;
+
+  processorNode.onaudioprocess = (event) => {
+    const input = event.inputBuffer.getChannelData(0);
+    const frame = float32ToPcm16(input);
+    pcmFrames.push(frame);
+    pcmByteLength += frame.length;
+  };
+
+  mediaSourceNode.connect(processorNode);
+  processorNode.connect(pcmGainNode);
+  pcmGainNode.connect(audioContext.destination);
+
+  pcmFlushTimer = window.setInterval(() => {
+    flushPcmFrames();
+  }, 200);
+}
+
+function stopPcmRecording() {
+  if (pcmFlushTimer) {
+    clearInterval(pcmFlushTimer);
+    pcmFlushTimer = null;
+  }
+
+  flushPcmFrames();
+
+  if (processorNode) {
+    processorNode.disconnect();
+    processorNode.onaudioprocess = null;
+    processorNode = null;
+  }
+  if (mediaSourceNode) {
+    mediaSourceNode.disconnect();
+    mediaSourceNode = null;
+  }
+  if (pcmGainNode) {
+    pcmGainNode.disconnect();
+    pcmGainNode = null;
+  }
+  if (audioContext) {
+    void audioContext.close();
+    audioContext = null;
+  }
+  if (mediaStream) {
+    mediaStream.getTracks().forEach((track) => track.stop());
+    mediaStream = null;
+  }
+}
+
+async function startMediaRecorderRecording() {
+  if (!window.MediaRecorder) {
+    throw new Error('MediaRecorder 不可用');
   }
 
   mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -179,35 +334,42 @@ async function startRecording() {
     });
   });
 
-  mediaRecorder.addEventListener('stop', () => {
-    if (mediaStream) {
-      mediaStream.getTracks().forEach((track) => track.stop());
-    }
-    mediaStream = null;
-    mediaRecorder = null;
-    recordStatus('空闲');
-    recordBtn.disabled = false;
-    stopBtn.disabled = true;
-  });
-
   mediaRecorder.start(250);
-  startSpeechDebug();
-  realtimeDraft = '';
-  liveTranscriptEl.textContent = '识别中...';
-  recordStatus('录音中...');
-  recordBtn.disabled = true;
-  stopBtn.disabled = false;
-  log('开始录音并推送音频分片');
 }
 
-async function stopRecording() {
+function stopMediaRecorderRecording() {
   if (!mediaRecorder) {
-    stopSpeechDebug();
+    return;
+  }
+  mediaRecorder.stop();
+  mediaRecorder = null;
+
+  if (mediaStream) {
+    mediaStream.getTracks().forEach((track) => track.stop());
+    mediaStream = null;
+  }
+}
+
+function flushPcmFrames() {
+  if (pcmFrames.length === 0 || pcmByteLength <= 0) {
     return;
   }
 
-  mediaRecorder.stop();
-  stopSpeechDebug();
+  const merged = new Uint8Array(pcmByteLength);
+  let offset = 0;
+  for (const frame of pcmFrames) {
+    merged.set(frame, offset);
+    offset += frame.length;
+  }
+  pcmFrames = [];
+  pcmByteLength = 0;
+
+  send({
+    type: 'input.audio.chunk',
+    data: uint8ToBase64(merged),
+    encoding: 'pcm_s16le',
+    sampleRate: audioContext?.sampleRate ?? 16000
+  });
 }
 
 function send(payload) {
@@ -231,12 +393,69 @@ function log(message) {
   logEl.textContent = `[${time}] ${message}\n${logEl.textContent}`;
 }
 
+function setChannelLinkStatus(text) {
+  channelLinkStatusEl.textContent = text;
+}
+
+function setChannelSessionId(text) {
+  channelSessionIdEl.textContent = text;
+}
+
+function setChannelLastError(text) {
+  channelLastErrorEl.textContent = text;
+}
+
+function setAssistantStream(text) {
+  assistantStreamEl.textContent = text;
+}
+
+function appendAssistantStream(delta) {
+  assistantStream += delta;
+  if (assistantStream.length > 8000) {
+    assistantStream = assistantStream.slice(-8000);
+  }
+  setAssistantStream(assistantStream || '-');
+}
+
+function setLastServerEvent(text) {
+  lastServerEventEl.textContent = text;
+}
+
+function formatEventForDebug(event) {
+  if (!event || typeof event !== 'object') {
+    return String(event);
+  }
+
+  const cloned = { ...event };
+  if (typeof cloned.data === 'string' && cloned.data.length > 120) {
+    cloned.data = `<base64 ${cloned.data.length} chars>`;
+  }
+
+  return JSON.stringify(cloned, null, 2);
+}
+
 async function blobToBase64(blob) {
   const buffer = await blob.arrayBuffer();
+  return uint8ToBase64(new Uint8Array(buffer));
+}
+
+function float32ToPcm16(input) {
+  const output = new Uint8Array(input.length * 2);
+  const view = new DataView(output.buffer);
+  for (let i = 0; i < input.length; i += 1) {
+    const sample = Math.max(-1, Math.min(1, input[i]));
+    const s = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+    view.setInt16(i * 2, s, true);
+  }
+  return output;
+}
+
+function uint8ToBase64(bytes) {
   let binary = '';
-  const bytes = new Uint8Array(buffer);
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode(...chunk);
   }
   return btoa(binary);
 }
@@ -307,4 +526,28 @@ function stopSpeechDebug() {
     // noop
   }
   speechRecognition = null;
+}
+
+function sendLocalAsrIfAvailable() {
+  if (asrProvider !== 'browser') {
+    return;
+  }
+
+  const liveText = (liveTranscriptEl.textContent ?? '').trim();
+  const localText =
+    liveText && liveText !== '识别中...' && !liveText.startsWith('当前浏览器不支持')
+      ? liveText
+      : realtimeDraft.trim();
+
+  if (!localText) {
+    log('本地 ASR 文本为空，跳过 input.asr.local');
+    return;
+  }
+
+  send({
+    type: 'input.asr.local',
+    text: localText,
+    isFinal: true
+  });
+  log(`发送 input.asr.local: ${localText}`);
 }

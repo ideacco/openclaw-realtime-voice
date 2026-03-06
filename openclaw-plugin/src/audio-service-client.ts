@@ -19,6 +19,8 @@ export interface ChannelStartedPayload {
 
 export type AudioServiceEvent =
   | { type: 'connected' }
+  | { type: 'disconnected'; code: number; reason: string }
+  | { type: 'socket.error'; message: string }
   | ChannelStartedPayload
   | { type: 'assistant.text.delta'; text: string }
   | { type: 'message.created'; sessionId: string; message: { role: 'user'; content: string } }
@@ -144,6 +146,19 @@ export class AudioServiceClient extends EventEmitter {
   private bindSocket(ws: WebSocketLike): void {
     addSocketListener(ws, 'message', (messageLike) => {
       void this.handleIncomingMessage(messageLike);
+    });
+
+    addSocketListener(ws, 'close', (closeLike) => {
+      const { code, reason } = extractCloseInfo(closeLike);
+      if (this.ws === ws) {
+        this.ws = null;
+      }
+      this.emit('event', { type: 'disconnected', code, reason } as AudioServiceEvent);
+    });
+
+    addSocketListener(ws, 'error', (errorLike) => {
+      const error = extractSocketError(errorLike);
+      this.emit('event', { type: 'socket.error', message: error.message } as AudioServiceEvent);
     });
   }
 

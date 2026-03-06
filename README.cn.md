@@ -140,6 +140,7 @@ export https_proxy=http://127.0.0.1:7897 http_proxy=http://127.0.0.1:7897 all_pr
 - `ASR_MODEL`：ASR 模型名
 - `ASR_LANGUAGE`：识别语言（默认 `zh`）
 - `ASR_SAMPLE_RATE`：ASR 输入采样率（默认 `16000`）
+- `VOICE_IDLE_TIMEOUT_MS`：Web 会话空闲超时（毫秒）。设为 `0` 表示禁用自动断开（唤醒词常驻模式推荐）。
 - `TTS_PROVIDER`：`aliyun` 或 `browser`
 - `TTS_URL`：实时 TTS WebSocket 地址
 - `TTS_MODEL`：实时 TTS 模型名
@@ -205,6 +206,14 @@ npm run build
 2. 发送文本，确认出现 `assistant.text.delta` 和 `audio.output.delta`。
 3. 录音并提交，确认出现 `vad.segment` 和 `asr.text`。
 4. 最终确认 `audio.output.completed` 事件。
+
+唤醒词自动单轮测试建议：
+
+1. 保持调试页连接成功，并确认“唤醒模式”为开启。
+2. 配置唤醒词（逗号分隔），默认 `你好老六`。
+3. 先说唤醒词，再说问题（依赖 Chrome SpeechRecognition）。
+4. 停止说话约 `1200ms` 后应自动提交（日志出现 `turn.auto_commit`）。
+5. 等待助手播报完成后应自动回到待命（日志出现 `wake.resumed`）。
 
 ## 接入 OpenClaw 的步骤
 

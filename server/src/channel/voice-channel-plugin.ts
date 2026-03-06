@@ -475,13 +475,25 @@ export class VoiceChannelPlugin {
     };
     this.send(state.ws, createdEvent);
 
+    let pluginPeerCount = 0;
     if (this.options.openclawMode === 'plugin' && state.clientRole === 'web') {
       for (const peer of this.sessions.values()) {
         if (peer === state || peer.clientRole !== 'plugin') {
           continue;
         }
+        pluginPeerCount += 1;
         this.send(peer.ws, createdEvent);
         this.touch(peer.ws);
+      }
+
+      if (pluginPeerCount === 0) {
+        this.sendError(
+          state.ws,
+          'UPSTREAM_ERROR',
+          'OpenClaw voice-channel plugin is not connected to audio service',
+          true,
+          state.sessionId
+        );
       }
     }
 
@@ -529,7 +541,10 @@ export class VoiceChannelPlugin {
     });
   }
 
-  private makeIdleTimer(ws: WebSocket): NodeJS.Timeout {
+  private makeIdleTimer(ws: WebSocket): NodeJS.Timeout | null {
+    if (this.options.idleTimeoutMs <= 0) {
+      return null;
+    }
     return setTimeout(() => {
       const state = this.sessions.get(ws);
       if (!state) {

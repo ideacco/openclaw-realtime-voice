@@ -138,6 +138,7 @@ Use `server/.env` with provider-neutral keys:
 - `ASR_MODEL`: ASR model name
 - `ASR_LANGUAGE`: recognition language (default `zh`)
 - `ASR_SAMPLE_RATE`: ASR input sample rate (default `16000`)
+- `VOICE_IDLE_TIMEOUT_MS`: web session idle timeout in ms. Set `0` to disable auto-disconnect (recommended for persistent wake-word mode).
 - `TTS_PROVIDER`: `aliyun` or `browser`
 - `TTS_URL`: realtime TTS websocket endpoint
 - `TTS_MODEL`: realtime TTS model name
@@ -203,6 +204,14 @@ Manual test checklist:
 2. Send text and verify `assistant.text.delta` and `audio.output.delta` events.
 3. Start recording, stop/commit, verify `vad.segment` and `asr.text`.
 4. Verify the final event `audio.output.completed`.
+
+Wake-word auto turn (single-turn) checklist:
+
+1. Keep debug page connected and ensure `Wake Mode` is enabled.
+2. Set wake words (comma-separated), default is `你好老六`.
+3. Say wake word and then your query (Chrome SpeechRecognition required).
+4. Stop speaking for ~`1200ms`; the page should auto-commit (`turn.auto_commit` log).
+5. Wait for assistant reply and playback; after completion it should resume to wake idle automatically (`wake.resumed` log).
 
 ## OpenClaw Integration Steps
 

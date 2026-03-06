@@ -49,10 +49,25 @@
 
       <section class="panel">
         <h2>语音输入</h2>
+        <div class="kv">
+          <span>语音状态</span>
+          <strong id="wakeStateLabel">未连接</strong>
+        </div>
+        <label>
+          唤醒词（逗号分隔）
+          <input id="wakeWordsInput" value="你好老六" />
+        </label>
+        <label>
+          静音自动提交（ms）
+          <input id="silenceMsInput" type="number" min="600" max="5000" step="100" value="1200" />
+        </label>
         <div class="row">
-          <button id="recordBtn" disabled>开始录音</button>
-          <button id="stopBtn" disabled>停止并提交</button>
+          <button id="wakeToggleBtn" disabled>唤醒模式：开</button>
           <span id="recordStatus">空闲</span>
+        </div>
+        <div class="row">
+          <button id="recordBtn" disabled>手动开始（兜底）</button>
+          <button id="stopBtn" disabled>手动停止并提交</button>
         </div>
       </section>
 

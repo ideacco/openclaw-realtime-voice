@@ -18,9 +18,16 @@ interface RuntimeContextLike {
 export function createVoiceChannelPlugin(config: VoiceChannelPluginConfig): any {
   const clientByAccount = new Map<string, AudioServiceClient>();
   const clientListenerByAccount = new Map<string, (event: any) => void>();
+  const runtimeAccountByAccount = new Map<
+    string,
+    VoiceChannelPluginConfig & { id: string; accountId: string; label: string }
+  >();
   const runtimeContextByAccount = new Map<string, RuntimeContextLike>();
   const inboundQueueByAccount = new Map<string, Promise<void>>();
   const lastFinalAsrByAccount = new Map<string, { text: string; at: number }>();
+  const reconnectTimerByAccount = new Map<string, NodeJS.Timeout>();
+  const reconnectAttemptByAccount = new Map<string, number>();
+  const reconnectingByAccount = new Set<string>();
   const resolveAccountId = (account: any): string => account?.id ?? account?.accountId ?? 'default';
 
   const readLegacyPluginConfig = (cfg: any): Partial<VoiceChannelPluginConfig> => {
@@ -76,6 +83,66 @@ export function createVoiceChannelPlugin(config: VoiceChannelPluginConfig): any 
       throw new Error(`Voice account ${accountId} missing audioServiceToken`);
     }
     return runtimeAccount;
+  };
+
+  const clearReconnect = (accountId: string): void => {
+    const timer = reconnectTimerByAccount.get(accountId);
+    if (timer) {
+      clearTimeout(timer);
+      reconnectTimerByAccount.delete(accountId);
+    }
+  };
+
+  const reconnectAccount = async (accountId: string, reason: string): Promise<void> => {
+    if (reconnectingByAccount.has(accountId)) {
+      return;
+    }
+
+    const client = clientByAccount.get(accountId);
+    const runtimeAccount = runtimeAccountByAccount.get(accountId);
+    if (!client || !runtimeAccount) {
+      return;
+    }
+
+    reconnectingByAccount.add(accountId);
+    try {
+      await client.connect();
+      logInfo(accountId, `RECONNECTED websocket reason=${reason}`);
+
+      const started = await client.startChannelAndWaitAck(
+        {
+          voice: runtimeAccount.voice,
+          sampleRate: runtimeAccount.ttsSampleRate,
+          inputSampleRate: runtimeAccount.inputSampleRate,
+          clientRole: 'plugin'
+        },
+        10_000
+      );
+      clearReconnect(accountId);
+      reconnectAttemptByAccount.set(accountId, 0);
+      logInfo(
+        accountId,
+        `RESTARTED sessionId=${started.sessionId} asrProvider=${started.asrProvider ?? '-'} ttsProvider=${started.ttsProvider ?? '-'} llmMode=${started.llmMode ?? '-'}`
+      );
+    } catch (error) {
+      const attempts = (reconnectAttemptByAccount.get(accountId) ?? 0) + 1;
+      reconnectAttemptByAccount.set(accountId, attempts);
+      const delayMs = Math.min(30_000, 1000 * 2 ** Math.min(attempts, 5));
+      logError(
+        accountId,
+        `RECONNECT_FAILED attempt=${attempts} nextInMs=${delayMs} ${toMessage(error)}`
+      );
+
+      clearReconnect(accountId);
+      reconnectTimerByAccount.set(
+        accountId,
+        setTimeout(() => {
+          void reconnectAccount(accountId, 'retry');
+        }, delayMs)
+      );
+    } finally {
+      reconnectingByAccount.delete(accountId);
+    }
   };
 
   return {
@@ -138,8 +205,25 @@ export function createVoiceChannelPlugin(config: VoiceChannelPluginConfig): any 
           accountId,
           channelRuntime
         });
+        runtimeAccountByAccount.set(accountId, runtimeAccount);
+        reconnectAttemptByAccount.set(accountId, 0);
 
         const listener = (event: any) => {
+          if (event?.type === 'connected') {
+            return;
+          }
+          if (event?.type === 'socket.error') {
+            logError(accountId, `AUDIO_SOCKET_ERROR ${event.message}`);
+            return;
+          }
+          if (event?.type === 'disconnected') {
+            logError(
+              accountId,
+              `AUDIO_DISCONNECTED code=${event.code} reason=${event.reason || '-'}`
+            );
+            void reconnectAccount(accountId, 'socket_closed');
+            return;
+          }
           if (event?.type === 'channel.error') {
             logError(accountId, `CHANNEL_ERROR [${event.code}] ${event.message}`);
             return;
@@ -227,6 +311,9 @@ export function createVoiceChannelPlugin(config: VoiceChannelPluginConfig): any 
           client.off('event', listener);
           clientListenerByAccount.delete(accountId);
           client.close();
+          runtimeAccountByAccount.delete(accountId);
+          reconnectAttemptByAccount.delete(accountId);
+          clearReconnect(accountId);
           const message = toMessage(error);
           logError(accountId, `FAILED ${message}`);
           throw new Error(`Failed to start voice channel account ${accountId}: ${message}`);
@@ -243,6 +330,10 @@ export function createVoiceChannelPlugin(config: VoiceChannelPluginConfig): any 
           return;
         }
 
+        clearReconnect(accountId);
+        reconnectAttemptByAccount.delete(accountId);
+        reconnectingByAccount.delete(accountId);
+
         client.endChannel();
         if (listener) {
           client.off('event', listener);
@@ -250,6 +341,7 @@ export function createVoiceChannelPlugin(config: VoiceChannelPluginConfig): any 
         }
         client.close();
         clientByAccount.delete(accountId);
+        runtimeAccountByAccount.delete(accountId);
         runtimeContextByAccount.delete(accountId);
         inboundQueueByAccount.delete(accountId);
         lastFinalAsrByAccount.delete(accountId);

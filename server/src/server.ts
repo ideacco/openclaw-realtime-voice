@@ -23,7 +23,8 @@ loadEnvFile(path.join(serverRoot, '.env'));
 const port = Number(process.env.PORT ?? 8080);
 const host = process.env.HOST ?? '0.0.0.0';
 const token = process.env.VOICE_GATEWAY_TOKEN ?? 'dev-token';
-const idleTimeoutMs = Number(process.env.VOICE_IDLE_TIMEOUT_MS ?? 60_000);
+const idleTimeoutRaw = Number(process.env.VOICE_IDLE_TIMEOUT_MS ?? 60_000);
+const idleTimeoutMs = Number.isFinite(idleTimeoutRaw) ? idleTimeoutRaw : 60_000;
 const asrProvider = parseAsrProvider(process.env.ASR_PROVIDER) ?? 'aliyun';
 const ttsProvider = parseTtsProvider(process.env.TTS_PROVIDER) ?? 'aliyun';
 const speechApiKey = envWithFallback('SPEECH_API_KEY', 'ALIYUN_API_KEY');
@@ -120,7 +121,7 @@ server.listen(port, host, () => {
   }
   console.log(`[voice-channel] websocket: ws://localhost:${port}/channel/voice/ws?token=${token}`);
   console.log(
-    `[voice-channel] mode: HOST=${host} ASR_PROVIDER=${asrProvider} ASR_MODEL=${asrModel} ASR_URL=${asrUrl} TTS_PROVIDER=${ttsProvider} TTS_MODE=${ttsMode} TTS_URL=${ttsUrl}`
+    `[voice-channel] mode: HOST=${host} IDLE_TIMEOUT_MS=${idleTimeoutMs <= 0 ? 'disabled' : idleTimeoutMs} ASR_PROVIDER=${asrProvider} ASR_MODEL=${asrModel} ASR_URL=${asrUrl} TTS_PROVIDER=${ttsProvider} TTS_MODE=${ttsMode} TTS_URL=${ttsUrl}`
   );
   console.log(
     `[voice-channel] openclaw: mode=${openclawMode} gatewayAdapter=${openclawAdapter.enabled} gatewayBaseUrl=${openclawGatewayBaseUrl || '-'} agentId=${openclawAgentId} chatPath=${openclawChatPath}`

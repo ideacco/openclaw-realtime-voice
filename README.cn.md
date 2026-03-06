@@ -16,7 +16,8 @@
 - VAD 切分（`input.audio.chunk` -> 语音段）
 - ASR 提供方可切换：`browser` / `aliyun`
 - Assistant 流式 token 处理
-- 可选直连 OpenClaw Gateway 流式回复（`input.text` -> OpenClaw -> TTS）
+- 默认通过频道插件触发 OpenClaw（ASR 文本 -> OpenClaw -> 流式回复 -> TTS）
+- 可选直连 OpenClaw Gateway（仅 standalone 调试）
 - 句子切分后低延迟 TTS
 - 阿里云实时 TTS（新 Realtime 协议）
 - Web 端流式音频播放
@@ -145,7 +146,7 @@ export https_proxy=http://127.0.0.1:7897 http_proxy=http://127.0.0.1:7897 all_pr
 - `TTS_FORMAT`：当前支持 `pcm`
 - `TTS_SAMPLE_RATE`：输出采样率（如 `24000`）
 - `TTS_MODE`：`server_commit` 或 `commit`
-- `OPENCLAW_GATEWAY_BASE_URL`：OpenClaw Gateway HTTP 地址（用于 `input.text`）
+- `OPENCLAW_GATEWAY_BASE_URL`：OpenClaw Gateway HTTP 地址（可选，仅 standalone 调试）
 - `OPENCLAW_GATEWAY_TOKEN`：OpenClaw Gateway Bearer Token（可选）
 - `OPENCLAW_AGENT_ID`：OpenClaw agent id（默认 `main`）
 - `OPENCLAW_REQUEST_MODEL`：请求里的 model 字段，通常保持 `openclaw`
@@ -156,9 +157,9 @@ export https_proxy=http://127.0.0.1:7897 http_proxy=http://127.0.0.1:7897 all_pr
 
 - 旧的 `ALIYUN_*` 变量仍可作为回退读取。
 
-文本事件路由：
+文本事件路由（默认 `llmMode=plugin`）：
 
-- `input.text`：用户文本 -> OpenClaw Gateway 流式回复 -> 实时 TTS
+- `input.text`：用户文本事件（插件模式下由 OpenClaw 频道插件消费并触发 OpenClaw）
 - `input.assistant.text`：文本已由 OpenClaw 生成 -> 仅做实时 TTS
 
 ASR 模式示例：

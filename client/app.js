@@ -39,6 +39,7 @@ let realtimeDraft = '';
 let assistantStream = '';
 let asrProvider = 'unknown';
 let llmEnabled = false;
+let llmMode = 'unknown';
 let lastLocalAsrInterimText = '';
 let lastLocalAsrInterimSentAt = 0;
 let lastLocalAsrFinalText = '';
@@ -91,6 +92,7 @@ connectBtn.addEventListener('click', () => {
     endBtn.disabled = true;
     sessionId = null;
     llmEnabled = false;
+    llmMode = 'unknown';
     await stopRecording();
     await player.close();
     log('连接关闭');
@@ -131,7 +133,7 @@ speakBtn.addEventListener('click', () => {
     return;
   }
   if (!llmEnabled) {
-    log('警告: 当前会话未启用 OpenClaw 上游，input.text 可能被服务端拒绝');
+    log('警告: 当前会话未启用 OpenClaw 链路，input.text 可能没有返回');
   }
 
   send({ type: 'input.text', text });
@@ -154,15 +156,16 @@ function onServerEvent(event) {
       sessionId = event.sessionId;
       asrProvider = event.asrProvider ?? asrProvider;
       llmEnabled = Boolean(event.llmEnabled);
+      llmMode = event.llmMode ?? llmMode;
       status(`会话已启动 (${event.sessionId.slice(0, 8)})`);
       setChannelLinkStatus(
-        `频道会话已启动 (ASR=${asrProvider}, OpenClaw=${llmEnabled ? 'enabled' : 'disabled'})`
+        `频道会话已启动 (ASR=${asrProvider}, OpenClaw=${llmEnabled ? llmMode : 'disabled'})`
       );
       setChannelSessionId(event.sessionId);
       assistantStream = '';
       setAssistantStream('-');
       log(
-        `${event.type} voice=${event.voice} sampleRate=${event.sampleRate} asrProvider=${event.asrProvider ?? '-'} llmEnabled=${event.llmEnabled ?? '-'}`
+        `${event.type} voice=${event.voice} sampleRate=${event.sampleRate} asrProvider=${event.asrProvider ?? '-'} llmEnabled=${event.llmEnabled ?? '-'} llmMode=${event.llmMode ?? '-'}`
       );
       break;
     case 'vad.segment':

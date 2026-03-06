@@ -151,6 +151,7 @@ export interface ChannelStartedEvent {
   sampleRate: number;
   asrProvider?: 'browser' | 'aliyun';
   llmEnabled?: boolean;
+  llmMode?: 'plugin' | 'gateway';
 }
 
 export interface SessionEndedEvent {

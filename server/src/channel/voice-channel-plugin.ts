@@ -23,6 +23,7 @@ interface VoiceChannelPluginOptions {
   asrProvider: AsrProvider;
   asr: RealtimeAsrClient;
   openclaw: OpenClawAdapter;
+  openclawMode: 'plugin' | 'gateway';
   aliyun: {
     apiKey: string;
     url: string;
@@ -218,7 +219,8 @@ export class VoiceChannelPlugin {
       voice: ttsConfig.voice,
       sampleRate: ttsConfig.sampleRate,
       asrProvider: this.options.asrProvider,
-      llmEnabled: this.options.openclaw.enabled
+      llmEnabled: true,
+      llmMode: this.options.openclawMode
     });
   }
 
@@ -432,6 +434,12 @@ export class VoiceChannelPlugin {
         content: text
       }
     });
+
+    if (this.options.openclawMode !== 'gateway') {
+      // In channel-plugin mode, OpenClaw reply is produced by the OpenClaw channel plugin
+      // and pushed back as input.assistant.text. The audio service does not call OpenClaw directly.
+      return;
+    }
 
     await state.agent.startTurn(state.voiceConfig);
 

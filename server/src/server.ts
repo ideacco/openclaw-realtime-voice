@@ -49,6 +49,7 @@ const openclawRequestModel = process.env.OPENCLAW_REQUEST_MODEL?.trim() || 'open
 const openclawChatPath = process.env.OPENCLAW_CHAT_PATH?.trim() || '/v1/chat/completions';
 const openclawTimeoutMs = Number(process.env.OPENCLAW_TIMEOUT_MS ?? 45_000);
 const openclawSystemPrompt = process.env.OPENCLAW_SYSTEM_PROMPT?.trim() || undefined;
+const openclawMode: 'plugin' | 'gateway' = openclawGatewayBaseUrl ? 'gateway' : 'plugin';
 
 if (!speechApiKey) {
   throw new Error('SPEECH_API_KEY is required');
@@ -96,6 +97,7 @@ const channelPlugin = new VoiceChannelPlugin({
   asrProvider,
   asr: asrClient,
   openclaw: openclawAdapter,
+  openclawMode,
   aliyun: {
     apiKey: speechApiKey,
     url: ttsUrl,
@@ -119,7 +121,7 @@ server.listen(port, host, () => {
     `[voice-channel] mode: HOST=${host} ASR_PROVIDER=${asrProvider} ASR_MODEL=${asrModel} ASR_URL=${asrUrl} TTS_MODE=${ttsMode} TTS_URL=${ttsUrl}`
   );
   console.log(
-    `[voice-channel] openclaw: enabled=${openclawAdapter.enabled} gatewayBaseUrl=${openclawGatewayBaseUrl || '-'} agentId=${openclawAgentId} chatPath=${openclawChatPath}`
+    `[voice-channel] openclaw: mode=${openclawMode} gatewayAdapter=${openclawAdapter.enabled} gatewayBaseUrl=${openclawGatewayBaseUrl || '-'} agentId=${openclawAgentId} chatPath=${openclawChatPath}`
   );
   if (asrProvider === 'browser') {
     console.log(

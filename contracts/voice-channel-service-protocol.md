@@ -44,7 +44,10 @@
 }
 ```
 
-`input.text` 语义：用户输入文本，服务端会调用 OpenClaw（或配置的上游 LLM）获取流式回复，再做 TTS。
+`input.text` 语义（模式相关）：
+
+- `llmMode=plugin`（默认）：服务端只记录用户文本事件，真正的 OpenClaw 调用由频道插件通过 `asr.text` 触发。
+- `llmMode=gateway`（可选调试）：服务端直接调用 OpenClaw Gateway 获取流式回复，再做 TTS。
 
 ### input.assistant.text
 
@@ -106,7 +109,8 @@
   "voice": "Bunny",
   "sampleRate": 24000,
   "asrProvider": "browser",
-  "llmEnabled": true
+  "llmEnabled": true,
+  "llmMode": "plugin"
 }
 ```
 

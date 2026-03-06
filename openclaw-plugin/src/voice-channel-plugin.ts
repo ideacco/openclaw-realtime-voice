@@ -9,9 +9,18 @@ export interface VoiceChannelPluginConfig {
   inputSampleRate: number;
 }
 
+interface RuntimeContextLike {
+  cfg: any;
+  accountId: string;
+  channelRuntime?: any;
+}
+
 export function createVoiceChannelPlugin(config: VoiceChannelPluginConfig): any {
   const clientByAccount = new Map<string, AudioServiceClient>();
   const clientListenerByAccount = new Map<string, (event: any) => void>();
+  const runtimeContextByAccount = new Map<string, RuntimeContextLike>();
+  const inboundQueueByAccount = new Map<string, Promise<void>>();
+  const lastFinalAsrByAccount = new Map<string, { text: string; at: number }>();
   const resolveAccountId = (account: any): string => account?.id ?? account?.accountId ?? 'default';
 
   const readLegacyPluginConfig = (cfg: any): Partial<VoiceChannelPluginConfig> => {
@@ -111,7 +120,7 @@ export function createVoiceChannelPlugin(config: VoiceChannelPluginConfig): any 
     },
 
     gateway: {
-      startAccount: async ({ cfg, account }: any) => {
+      startAccount: async ({ cfg, account, channelRuntime }: any) => {
         const runtimeAccount = getRuntimeAccount(cfg, account);
         const accountId = runtimeAccount.accountId;
         if (clientByAccount.has(accountId)) {
@@ -123,6 +132,11 @@ export function createVoiceChannelPlugin(config: VoiceChannelPluginConfig): any 
           baseUrl: runtimeAccount.audioServiceBaseUrl,
           wsUrl: runtimeAccount.audioServiceWsUrl,
           token: runtimeAccount.audioServiceToken
+        });
+        runtimeContextByAccount.set(accountId, {
+          cfg,
+          accountId,
+          channelRuntime
         });
 
         const listener = (event: any) => {
@@ -136,6 +150,27 @@ export function createVoiceChannelPlugin(config: VoiceChannelPluginConfig): any 
           }
           if (event?.type === 'asr.text') {
             logInfo(accountId, `ASR_TEXT "${event.text}"`);
+            if (!event.isFinal) {
+              return;
+            }
+            const text = String(event.text ?? '').trim();
+            if (!text) {
+              return;
+            }
+            const last = lastFinalAsrByAccount.get(accountId);
+            const now = Date.now();
+            if (last && last.text === text && now - last.at < 1200) {
+              return;
+            }
+            lastFinalAsrByAccount.set(accountId, { text, at: now });
+            enqueueInboundAsr(accountId, async () => {
+              await dispatchAsrToOpenClaw({
+                accountId,
+                text,
+                client,
+                runtimeContext: runtimeContextByAccount.get(accountId)
+              });
+            }, inboundQueueByAccount);
           }
         };
         client.on('event', listener);
@@ -157,7 +192,7 @@ export function createVoiceChannelPlugin(config: VoiceChannelPluginConfig): any 
           );
           logInfo(
             accountId,
-            `STARTED sessionId=${started.sessionId} voice=${started.voice ?? runtimeAccount.voice} sampleRate=${started.sampleRate ?? runtimeAccount.ttsSampleRate} asrProvider=${started.asrProvider ?? '-'} llmEnabled=${started.llmEnabled ?? '-'}`
+            `STARTED sessionId=${started.sessionId} voice=${started.voice ?? runtimeAccount.voice} sampleRate=${started.sampleRate ?? runtimeAccount.ttsSampleRate} asrProvider=${started.asrProvider ?? '-'} llmEnabled=${started.llmEnabled ?? '-'} llmMode=${started.llmMode ?? '-'}`
           );
         } catch (error) {
           client.off('event', listener);
@@ -186,6 +221,9 @@ export function createVoiceChannelPlugin(config: VoiceChannelPluginConfig): any 
         }
         client.close();
         clientByAccount.delete(accountId);
+        runtimeContextByAccount.delete(accountId);
+        inboundQueueByAccount.delete(accountId);
+        lastFinalAsrByAccount.delete(accountId);
         logInfo(accountId, 'STOPPED');
       }
     },
@@ -219,4 +257,111 @@ function toMessage(error: unknown): string {
     return error.message;
   }
   return String(error);
+}
+
+function enqueueInboundAsr(
+  accountId: string,
+  task: () => Promise<void>,
+  queueMap: Map<string, Promise<void>>
+): void {
+  const prev = queueMap.get(accountId) ?? Promise.resolve();
+  const next = prev
+    .then(async () => {
+      await task();
+    })
+    .catch((error) => {
+      logError(accountId, `ASR_DISPATCH_FAILED ${toMessage(error)}`);
+    });
+  queueMap.set(accountId, next);
+}
+
+async function dispatchAsrToOpenClaw(params: {
+  accountId: string;
+  text: string;
+  client: AudioServiceClient;
+  runtimeContext?: RuntimeContextLike;
+}): Promise<void> {
+  const { accountId, text, client, runtimeContext } = params;
+  const runtime = runtimeContext?.channelRuntime;
+  const cfg = runtimeContext?.cfg;
+  if (!runtime) {
+    logError(accountId, 'channelRuntime is not available, cannot dispatch ASR text to OpenClaw');
+    return;
+  }
+  if (!cfg) {
+    logError(accountId, 'plugin config not available for ASR dispatch');
+    return;
+  }
+
+  const route = runtime.routing.resolveAgentRoute({
+    cfg,
+    channel: 'voice',
+    accountId,
+    peer: {
+      kind: 'direct',
+      id: `voice:${accountId}`
+    }
+  });
+
+  const body = runtime.reply.formatAgentEnvelope({
+    channel: 'Voice',
+    from: `voice:${accountId}`,
+    timestamp: Date.now(),
+    envelope: runtime.reply.resolveEnvelopeFormatOptions(cfg),
+    body: text
+  });
+
+  const ctxPayload = runtime.reply.finalizeInboundContext({
+    Body: body,
+    BodyForAgent: text,
+    RawBody: text,
+    CommandBody: text,
+    From: `voice:user:${accountId}`,
+    To: `voice:session:${accountId}`,
+    SessionKey: route.sessionKey,
+    AccountId: route.accountId,
+    ChatType: 'direct',
+    ConversationLabel: `voice:${accountId}`,
+    SenderName: 'Voice User',
+    SenderId: `voice-user:${accountId}`,
+    Provider: 'voice',
+    Surface: 'voice',
+    MessageSid: `voice-${Date.now()}`,
+    OriginatingChannel: 'voice',
+    OriginatingTo: `voice:session:${accountId}`,
+    CommandAuthorized: false
+  });
+
+  const storePath = runtime.session.resolveStorePath(cfg?.session?.store, {
+    agentId: route.agentId
+  });
+  await runtime.session.recordInboundSession({
+    storePath,
+    sessionKey: ctxPayload.SessionKey ?? route.sessionKey,
+    ctx: ctxPayload,
+    onRecordError: (error: unknown) => {
+      logError(accountId, `SESSION_RECORD_FAILED ${toMessage(error)}`);
+    }
+  });
+
+  await runtime.reply.dispatchReplyWithBufferedBlockDispatcher({
+    ctx: ctxPayload,
+    cfg,
+    dispatcherOptions: {
+      deliver: async (payload: any, info: any) => {
+        const replyText = String(payload?.text ?? '').trim();
+        if (!replyText) {
+          return;
+        }
+        client.sendAssistantText(replyText);
+        logInfo(accountId, `OPENCLAW_REPLY kind=${String(info?.kind ?? 'unknown')} len=${replyText.length}`);
+      },
+      onError: (error: unknown, info: any) => {
+        logError(
+          accountId,
+          `OPENCLAW_REPLY_ERROR kind=${String(info?.kind ?? 'unknown')} ${toMessage(error)}`
+        );
+      }
+    }
+  });
 }

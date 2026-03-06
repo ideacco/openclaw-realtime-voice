@@ -13,6 +13,7 @@ export interface ChannelStartedPayload {
   sampleRate?: number;
   asrProvider?: string;
   llmEnabled?: boolean;
+  llmMode?: 'plugin' | 'gateway';
 }
 
 export type AudioServiceEvent =

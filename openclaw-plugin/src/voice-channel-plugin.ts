@@ -167,6 +167,7 @@ export function createVoiceChannelPlugin(config: VoiceChannelPluginConfig): any 
               await dispatchAsrToOpenClaw({
                 accountId,
                 text,
+                targetSessionId: String(event.sessionId ?? ''),
                 client,
                 runtimeContext: runtimeContextByAccount.get(accountId)
               });
@@ -186,7 +187,8 @@ export function createVoiceChannelPlugin(config: VoiceChannelPluginConfig): any 
             {
               voice: runtimeAccount.voice,
               sampleRate: runtimeAccount.ttsSampleRate,
-              inputSampleRate: runtimeAccount.inputSampleRate
+              inputSampleRate: runtimeAccount.inputSampleRate,
+              clientRole: 'plugin'
             },
             10_000
           );
@@ -278,10 +280,11 @@ function enqueueInboundAsr(
 async function dispatchAsrToOpenClaw(params: {
   accountId: string;
   text: string;
+  targetSessionId: string;
   client: AudioServiceClient;
   runtimeContext?: RuntimeContextLike;
 }): Promise<void> {
-  const { accountId, text, client, runtimeContext } = params;
+  const { accountId, text, targetSessionId, client, runtimeContext } = params;
   const runtime = runtimeContext?.channelRuntime;
   const cfg = runtimeContext?.cfg;
   if (!runtime) {
@@ -353,8 +356,11 @@ async function dispatchAsrToOpenClaw(params: {
         if (!replyText) {
           return;
         }
-        client.sendAssistantText(replyText);
-        logInfo(accountId, `OPENCLAW_REPLY kind=${String(info?.kind ?? 'unknown')} len=${replyText.length}`);
+        client.sendAssistantText(replyText, targetSessionId || undefined);
+        logInfo(
+          accountId,
+          `OPENCLAW_REPLY kind=${String(info?.kind ?? 'unknown')} target=${targetSessionId || '-'} len=${replyText.length}`
+        );
       },
       onError: (error: unknown, info: any) => {
         logError(

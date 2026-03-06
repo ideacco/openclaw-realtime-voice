@@ -71,7 +71,8 @@ connectBtn.addEventListener('click', () => {
 
     send({
       type: 'channel.start',
-      inputSampleRate: 16000
+      inputSampleRate: 16000,
+      clientRole: 'web'
     });
     log('WebSocket 已连接，发送 channel.start');
   });

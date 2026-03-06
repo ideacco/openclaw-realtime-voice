@@ -38,11 +38,12 @@ interface VoiceChannelPluginOptions {
 interface SessionState {
   sessionId: string;
   ws: WebSocket;
+  clientRole: 'web' | 'plugin';
   voiceConfig: TtsSessionConfig;
   inputSampleRate: number;
   agent: VoiceAgent;
   vad: SimpleVadEngine;
-  idleTimer: NodeJS.Timeout;
+  idleTimer: NodeJS.Timeout | null;
   queue: Promise<void>;
   pendingLocalAsrText: string;
   lastLocalAsrFinalText: string;
@@ -126,7 +127,13 @@ export class VoiceChannelPlugin {
     switch (event.type) {
       case 'channel.start':
       case 'session.start':
-        await this.onChannelStart(ws, event.voice, event.sampleRate, event.type === 'channel.start' ? event.inputSampleRate : undefined);
+        await this.onChannelStart(
+          ws,
+          event.voice,
+          event.sampleRate,
+          event.type === 'channel.start' ? event.inputSampleRate : undefined,
+          event.type === 'channel.start' ? event.clientRole : undefined
+        );
         break;
       case 'input.audio.chunk':
         this.onAudioChunk(ws, event.data, event.encoding ?? 'webm_opus', event.sampleRate);
@@ -140,9 +147,11 @@ export class VoiceChannelPlugin {
       case 'input.text':
         this.onTextInput(ws, event.text, 'user');
         break;
-      case 'agent.input.text':
       case 'input.assistant.text':
-        this.onTextInput(ws, event.text, 'assistant');
+        this.onAssistantTextInput(ws, event.text, event.sessionId);
+        break;
+      case 'agent.input.text':
+        this.onAssistantTextInput(ws, event.text);
         break;
       case 'channel.end':
       case 'session.end':
@@ -157,7 +166,8 @@ export class VoiceChannelPlugin {
     ws: WebSocket,
     voice?: string,
     sampleRate?: number,
-    inputSampleRate?: number
+    inputSampleRate?: number,
+    clientRole?: 'web' | 'plugin'
   ): Promise<void> {
     const existing = this.sessions.get(ws);
     if (existing) {
@@ -201,15 +211,18 @@ export class VoiceChannelPlugin {
     const state: SessionState = {
       sessionId,
       ws,
+      clientRole: clientRole ?? 'web',
       voiceConfig: ttsConfig,
       inputSampleRate: inputSampleRate ?? 16000,
       agent,
       vad: new SimpleVadEngine(),
-      idleTimer: this.makeIdleTimer(ws),
+      idleTimer: null,
       queue: Promise.resolve(),
       pendingLocalAsrText: '',
       lastLocalAsrFinalText: ''
     };
+
+    state.idleTimer = state.clientRole === 'plugin' ? null : this.makeIdleTimer(ws);
 
     this.sessions.set(ws, state);
 
@@ -325,6 +338,35 @@ export class VoiceChannelPlugin {
     });
   }
 
+  private onAssistantTextInput(ws: WebSocket, text: string, targetSessionId?: string): void {
+    const senderState = this.sessions.get(ws);
+    if (!senderState) {
+      this.sendError(ws, 'BAD_REQUEST', 'Session not started', false);
+      return;
+    }
+
+    const normalized = text.trim();
+    if (!normalized) {
+      return;
+    }
+
+    const targetState = targetSessionId ? this.findSessionById(targetSessionId) : senderState;
+    if (!targetState) {
+      this.sendError(
+        ws,
+        'BAD_REQUEST',
+        `Target session not found: ${targetSessionId}`,
+        false,
+        senderState.sessionId
+      );
+      return;
+    }
+
+    this.enqueue(targetState, async () => {
+      await this.processAssistantText(targetState, normalized);
+    });
+  }
+
   private onLocalAsrText(ws: WebSocket, text: string, isFinal: boolean): void {
     const state = this.sessions.get(ws);
     if (!state) {
@@ -347,12 +389,7 @@ export class VoiceChannelPlugin {
         return;
       }
       state.pendingLocalAsrText = next;
-      this.send(ws, {
-        type: 'asr.text',
-        sessionId: state.sessionId,
-        text: next,
-        isFinal: false
-      });
+      this.emitAsrText(state, next, false);
       return;
     }
 
@@ -362,12 +399,7 @@ export class VoiceChannelPlugin {
 
     state.lastLocalAsrFinalText = next;
     state.pendingLocalAsrText = '';
-    this.send(ws, {
-      type: 'asr.text',
-      sessionId: state.sessionId,
-      text: next,
-      isFinal: true
-    });
+    this.emitAsrText(state, next, true);
 
     this.enqueue(state, async () => {
       await this.processUserText(state, next);
@@ -409,12 +441,7 @@ export class VoiceChannelPlugin {
       return;
     }
 
-    this.send(state.ws, {
-      type: 'asr.text',
-      sessionId: state.sessionId,
-      text,
-      isFinal: true
-    });
+    this.emitAsrText(state, text, true);
 
     await this.processUserText(state, text);
   }
@@ -493,15 +520,51 @@ export class VoiceChannelPlugin {
     if (!state) {
       return;
     }
+    if (!state.idleTimer) {
+      return;
+    }
     clearTimeout(state.idleTimer);
     state.idleTimer = this.makeIdleTimer(ws);
   }
 
   private cleanupSession(state: SessionState): void {
-    clearTimeout(state.idleTimer);
+    if (state.idleTimer) {
+      clearTimeout(state.idleTimer);
+    }
     state.vad.reset();
     state.agent.close();
     this.sessions.delete(state.ws);
+  }
+
+  private emitAsrText(state: SessionState, text: string, isFinal: boolean): void {
+    const event: ServerEvent = {
+      type: 'asr.text',
+      sessionId: state.sessionId,
+      text,
+      isFinal
+    };
+
+    this.send(state.ws, event);
+    if (this.options.openclawMode !== 'plugin' || !isFinal || state.clientRole === 'plugin') {
+      return;
+    }
+
+    for (const peer of this.sessions.values()) {
+      if (peer === state || peer.clientRole !== 'plugin') {
+        continue;
+      }
+      this.send(peer.ws, event);
+      this.touch(peer.ws);
+    }
+  }
+
+  private findSessionById(sessionId: string): SessionState | null {
+    for (const state of this.sessions.values()) {
+      if (state.sessionId === sessionId) {
+        return state;
+      }
+    }
+    return null;
   }
 
   private send(ws: WebSocket, event: ServerEvent): void {

@@ -31,9 +31,12 @@
   "type": "channel.start",
   "voice": "Bunny",
   "sampleRate": 24000,
-  "inputSampleRate": 16000
+  "inputSampleRate": 16000,
+  "clientRole": "web"
 }
 ```
+
+`clientRole` 可选值：`web` / `plugin`。`plugin` 会话默认不启用 idle timeout，用于 OpenClaw 频道常驻连接。
 
 ### input.text
 
@@ -54,7 +57,8 @@
 ```json
 {
   "type": "input.assistant.text",
-  "text": "这是 OpenClaw 已生成的回复文本"
+  "text": "这是 OpenClaw 已生成的回复文本",
+  "sessionId": "目标会话ID（可选）"
 }
 ```
 

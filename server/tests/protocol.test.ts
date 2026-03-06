@@ -20,7 +20,8 @@ describe('protocol parsing', () => {
       type: 'channel.start',
       voice: 'Bunny',
       sampleRate: 24000,
-      inputSampleRate: 16000
+      inputSampleRate: 16000,
+      clientRole: undefined
     });
   });
 
@@ -53,7 +54,23 @@ describe('protocol parsing', () => {
     );
     expect(event).toEqual({
       type: 'input.assistant.text',
-      text: '这是 OpenClaw 的回复'
+      text: '这是 OpenClaw 的回复',
+      sessionId: undefined
+    });
+  });
+
+  it('parses input.assistant.text with sessionId', () => {
+    const event = parseClientEvent(
+      JSON.stringify({
+        type: 'input.assistant.text',
+        text: '这是定向回复',
+        sessionId: 's-123'
+      })
+    );
+    expect(event).toEqual({
+      type: 'input.assistant.text',
+      text: '这是定向回复',
+      sessionId: 's-123'
     });
   });
 

@@ -88,17 +88,28 @@ export class AudioServiceClient extends EventEmitter {
     });
   }
 
-  startChannel(params: { voice: string; sampleRate: number; inputSampleRate: number }): void {
+  startChannel(params: {
+    voice: string;
+    sampleRate: number;
+    inputSampleRate: number;
+    clientRole?: 'web' | 'plugin';
+  }): void {
     this.send({
       type: 'channel.start',
       voice: params.voice,
       sampleRate: params.sampleRate,
-      inputSampleRate: params.inputSampleRate
+      inputSampleRate: params.inputSampleRate,
+      clientRole: params.clientRole
     });
   }
 
   async startChannelAndWaitAck(
-    params: { voice: string; sampleRate: number; inputSampleRate: number },
+    params: {
+      voice: string;
+      sampleRate: number;
+      inputSampleRate: number;
+      clientRole?: 'web' | 'plugin';
+    },
     timeoutMs = 10_000
   ): Promise<ChannelStartedPayload> {
     this.startChannel(params);
@@ -109,8 +120,8 @@ export class AudioServiceClient extends EventEmitter {
     this.send({ type: 'input.text', text });
   }
 
-  sendAssistantText(text: string): void {
-    this.send({ type: 'input.assistant.text', text });
+  sendAssistantText(text: string, sessionId?: string): void {
+    this.send({ type: 'input.assistant.text', text, sessionId });
   }
 
   endChannel(): void {

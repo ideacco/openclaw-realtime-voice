@@ -27,6 +27,7 @@ export interface ChannelStartEvent {
   voice?: string;
   sampleRate?: number;
   inputSampleRate?: number;
+  clientRole?: 'web' | 'plugin';
 }
 
 export interface InputAudioChunkEvent {
@@ -55,6 +56,7 @@ export interface InputTextEvent {
 export interface InputAssistantTextEvent {
   type: 'input.assistant.text';
   text: string;
+  sessionId?: string;
 }
 
 export interface ChannelEndEvent {
@@ -264,9 +266,13 @@ export function parseClientEvent(raw: string): ClientEvent {
       if (typeof event.text !== 'string' || !event.text.trim()) {
         throw new Error('input.assistant.text.text is required');
       }
+      if (event.sessionId !== undefined && typeof event.sessionId !== 'string') {
+        throw new Error('input.assistant.text.sessionId must be string');
+      }
       return {
         type: 'input.assistant.text',
-        text: event.text
+        text: event.text,
+        sessionId: event.sessionId as string | undefined
       };
     }
     case 'channel.end':
@@ -300,12 +306,20 @@ function parseChannelStart(event: Record<string, unknown>): ChannelStartEvent {
   if (event.inputSampleRate !== undefined && typeof event.inputSampleRate !== 'number') {
     throw new Error('channel.start.inputSampleRate must be number');
   }
+  if (
+    event.clientRole !== undefined &&
+    event.clientRole !== 'web' &&
+    event.clientRole !== 'plugin'
+  ) {
+    throw new Error('channel.start.clientRole must be web or plugin');
+  }
 
   return {
     type: 'channel.start',
     voice: event.voice as string | undefined,
     sampleRate: event.sampleRate as number | undefined,
-    inputSampleRate: event.inputSampleRate as number | undefined
+    inputSampleRate: event.inputSampleRate as number | undefined,
+    clientRole: event.clientRole as 'web' | 'plugin' | undefined
   };
 }
 

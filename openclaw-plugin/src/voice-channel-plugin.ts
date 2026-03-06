@@ -28,6 +28,9 @@ export function createVoiceChannelPlugin(config: VoiceChannelPluginConfig): any 
   const reconnectTimerByAccount = new Map<string, NodeJS.Timeout>();
   const reconnectAttemptByAccount = new Map<string, number>();
   const reconnectingByAccount = new Set<string>();
+  const lifecycleTaskByAccount = new Map<string, Promise<void>>();
+  const lifecycleResolveByAccount = new Map<string, () => void>();
+  const stoppingByAccount = new Set<string>();
   const resolveAccountId = (account: any): string => account?.id ?? account?.accountId ?? 'default';
 
   const readLegacyPluginConfig = (cfg: any): Partial<VoiceChannelPluginConfig> => {
@@ -91,6 +94,79 @@ export function createVoiceChannelPlugin(config: VoiceChannelPluginConfig): any 
       clearTimeout(timer);
       reconnectTimerByAccount.delete(accountId);
     }
+  };
+
+  const ensureLifecycleTask = (accountId: string): Promise<void> => {
+    const existing = lifecycleTaskByAccount.get(accountId);
+    if (existing) {
+      return existing;
+    }
+
+    const task = new Promise<void>((resolve) => {
+      lifecycleResolveByAccount.set(accountId, resolve);
+    });
+    lifecycleTaskByAccount.set(accountId, task);
+    void task.finally(() => {
+      if (lifecycleTaskByAccount.get(accountId) === task) {
+        lifecycleTaskByAccount.delete(accountId);
+      }
+      lifecycleResolveByAccount.delete(accountId);
+    });
+    return task;
+  };
+
+  const resolveLifecycleTask = (accountId: string): void => {
+    const resolve = lifecycleResolveByAccount.get(accountId);
+    if (!resolve) {
+      return;
+    }
+    lifecycleResolveByAccount.delete(accountId);
+    resolve();
+  };
+
+  const stopRuntimeAccount = (accountId: string, reason: string): void => {
+    if (stoppingByAccount.has(accountId)) {
+      return;
+    }
+    stoppingByAccount.add(accountId);
+
+    try {
+      clearReconnect(accountId);
+      reconnectAttemptByAccount.delete(accountId);
+      reconnectingByAccount.delete(accountId);
+
+      const client = clientByAccount.get(accountId);
+      const listener = clientListenerByAccount.get(accountId);
+      if (listener && client) {
+        client.off('event', listener);
+      }
+      clientListenerByAccount.delete(accountId);
+
+      if (client) {
+        try {
+          client.endChannel();
+        } catch {
+          // Ignore send errors when socket already closed.
+        }
+        try {
+          client.close();
+        } catch {
+          // noop
+        }
+      }
+
+      clientByAccount.delete(accountId);
+      runtimeAccountByAccount.delete(accountId);
+      runtimeContextByAccount.delete(accountId);
+      inboundQueueByAccount.delete(accountId);
+      lastFinalAsrByAccount.delete(accountId);
+
+      resolveLifecycleTask(accountId);
+    } finally {
+      stoppingByAccount.delete(accountId);
+    }
+
+    logInfo(accountId, reason);
   };
 
   const reconnectAccount = async (accountId: string, reason: string): Promise<void> => {
@@ -187,11 +263,12 @@ export function createVoiceChannelPlugin(config: VoiceChannelPluginConfig): any 
     },
 
     gateway: {
-      startAccount: async ({ cfg, account, channelRuntime }: any) => {
+      startAccount: async ({ cfg, account, channelRuntime, abortSignal }: any) => {
         const runtimeAccount = getRuntimeAccount(cfg, account);
         const accountId = runtimeAccount.accountId;
         if (clientByAccount.has(accountId)) {
           logInfo(accountId, 'ALREADY_STARTED');
+          await ensureLifecycleTask(accountId);
           return;
         }
 
@@ -217,6 +294,13 @@ export function createVoiceChannelPlugin(config: VoiceChannelPluginConfig): any 
             return;
           }
           if (event?.type === 'disconnected') {
+            if (stoppingByAccount.has(accountId)) {
+              logInfo(
+                accountId,
+                `AUDIO_DISCONNECTED code=${event.code} reason=${event.reason || '-'} (during shutdown)`
+              );
+              return;
+            }
             logError(
               accountId,
               `AUDIO_DISCONNECTED code=${event.code} reason=${event.reason || '-'}`
@@ -312,6 +396,9 @@ export function createVoiceChannelPlugin(config: VoiceChannelPluginConfig): any 
           clientListenerByAccount.delete(accountId);
           client.close();
           runtimeAccountByAccount.delete(accountId);
+          runtimeContextByAccount.delete(accountId);
+          inboundQueueByAccount.delete(accountId);
+          lastFinalAsrByAccount.delete(accountId);
           reconnectAttemptByAccount.delete(accountId);
           clearReconnect(accountId);
           const message = toMessage(error);
@@ -320,32 +407,31 @@ export function createVoiceChannelPlugin(config: VoiceChannelPluginConfig): any 
         }
 
         clientByAccount.set(accountId, client);
+        const lifecycleTask = ensureLifecycleTask(accountId);
+
+        const onAbort = () => {
+          stopRuntimeAccount(accountId, 'STOPPED_BY_ABORT');
+        };
+        if (abortSignal) {
+          if (abortSignal.aborted) {
+            onAbort();
+          } else {
+            abortSignal.addEventListener('abort', onAbort, { once: true });
+          }
+        }
+
+        // Keep this task pending while account is running; resolving it tells
+        // OpenClaw that the channel account has stopped.
+        logInfo(accountId, 'RUNNING');
+        await lifecycleTask;
+        if (abortSignal) {
+          abortSignal.removeEventListener('abort', onAbort);
+        }
       },
 
       stopAccount: async ({ account }: any) => {
         const accountId = resolveAccountId(account);
-        const client = clientByAccount.get(accountId);
-        const listener = clientListenerByAccount.get(accountId);
-        if (!client) {
-          return;
-        }
-
-        clearReconnect(accountId);
-        reconnectAttemptByAccount.delete(accountId);
-        reconnectingByAccount.delete(accountId);
-
-        client.endChannel();
-        if (listener) {
-          client.off('event', listener);
-          clientListenerByAccount.delete(accountId);
-        }
-        client.close();
-        clientByAccount.delete(accountId);
-        runtimeAccountByAccount.delete(accountId);
-        runtimeContextByAccount.delete(accountId);
-        inboundQueueByAccount.delete(accountId);
-        lastFinalAsrByAccount.delete(accountId);
-        logInfo(accountId, 'STOPPED');
+        stopRuntimeAccount(accountId, 'STOPPED');
       }
     },
 

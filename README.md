@@ -15,12 +15,14 @@ This repository is designed to help you build a ChatGPT Voice-like flow on top o
 - Audio chunk ingestion from browser client
 - VAD segmentation pipeline (`input.audio.chunk` -> segment)
 - Switchable ASR providers: `browser` / `aliyun`
-- Streaming assistant token handling
+- Short filler ASR filtering before forwarding to OpenClaw (for example `嗯。`, `啊`, `呃呃`)
 - Default plugin-driven OpenClaw flow (ASR text -> OpenClaw -> streaming reply -> TTS)
 - Optional direct OpenClaw Gateway mode (standalone debug only)
 - Sentence segmentation for low-latency TTS
 - Aliyun realtime TTS integration (new realtime protocol)
 - Streaming audio chunk playback in web UI
+- Browser debug UI with wake-word mode, hold-space push-to-talk, draggable voice dock, and developer mode toggle
+- Left-side response timeline that renders `user prompt -> OpenClaw reply` pairs
 - OpenClaw channel plugin scaffold (`openclaw-plugin/`)
 - Contract document between plugin layer and audio service (`contracts/`)
 
@@ -51,6 +53,7 @@ Main responsibility:
 
 - Provide browser debug UI and realtime playback page
 - Capture mic audio chunks and send them to the server websocket
+- Support wake-word auto turn, manual PTT, browser TTS fallback, and developer-only debug tooling
 
 ### 3. OpenClaw Plugin Layer
 
@@ -185,9 +188,28 @@ Then open:
 
 - `http://localhost:8080`
 
+If `HOST=0.0.0.0`, you can also open the LAN URL printed by the server startup log on another device in the same network.
+
 ### WebSocket Endpoint
 
 - `ws://localhost:8080/channel/voice/ws?token=<VOICE_GATEWAY_TOKEN>`
+
+## Current Debug Web UI
+
+The `client/` page is now a practical voice-debug cockpit rather than a raw protocol tester.
+
+- Wake-word mode for single-turn auto commit
+- Hold `Space` to talk (PTT)
+- Draggable main voice button while idle
+- Browser playback for streaming PCM audio
+- User prompt shown above each matching OpenClaw reply
+- Developer mode toggle in the top settings panel; the debug panel stays hidden by default
+
+Behavior notes:
+
+- In `ASR_PROVIDER=browser`, browser transcript is sent with `input.asr.local`.
+- In `ASR_PROVIDER=aliyun`, audio chunks are sent to server-side ASR.
+- Very short filler ASR outputs such as `嗯。` are dropped before they are forwarded to OpenClaw.
 
 ## Testing
 
@@ -205,6 +227,15 @@ Manual test checklist:
 3. Start recording, stop/commit, verify `vad.segment` and `asr.text`.
 4. Verify the final event `audio.output.completed`.
 
+Recommended UI matrix:
+
+1. `ASR_PROVIDER=aliyun`, `TTS_PROVIDER=aliyun`
+2. `ASR_PROVIDER=browser`, `TTS_PROVIDER=aliyun`
+3. Enable wake mode and verify auto-commit after silence
+4. Disable wake mode and verify hold-space push-to-talk
+5. Enable developer mode and confirm the debug panel becomes visible
+6. Trigger an accidental short utterance such as `嗯。` and confirm it is not forwarded to OpenClaw
+
 Wake-word auto turn (single-turn) checklist:
 
 1. Keep debug page connected and ensure `Wake Mode` is enabled.
@@ -212,6 +243,14 @@ Wake-word auto turn (single-turn) checklist:
 3. Say wake word and then your query (Chrome SpeechRecognition required).
 4. Stop speaking for ~`1200ms`; the page should auto-commit (`turn.auto_commit` log).
 5. Wait for assistant reply and playback; after completion it should resume to wake idle automatically (`wake.resumed` log).
+
+Hold-space PTT checklist:
+
+1. Disable wake mode.
+2. Focus the page and hold `Space`.
+3. Speak while holding the key.
+4. Release `Space`; the page should commit immediately.
+5. Confirm the user prompt appears above the matching assistant reply.
 
 ## OpenClaw Integration Steps
 
@@ -260,8 +299,10 @@ docker compose up --build
 ## Current Limitations
 
 - `browser` ASR depends on client-side `input.asr.local` and browser `SpeechRecognition` support.
+- Browser wake-word mode also depends on `SpeechRecognition`; Chrome is the practical target browser.
 - `openclaw-plugin/` is a scaffold and may require adaptation to your OpenClaw runtime version.
 - `aliyun` ASR depends on upstream service availability and model permissions.
+- The filler-ASR filter is heuristic-based; if you need stricter control, move it to configurable thresholds.
 
 ## Roadmap
 

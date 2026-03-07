@@ -15,12 +15,14 @@
 - 浏览器音频分片上传
 - VAD 切分（`input.audio.chunk` -> 语音段）
 - ASR 提供方可切换：`browser` / `aliyun`
-- Assistant 流式 token 处理
+- 在转发到 OpenClaw 前过滤误触短 ASR 文本（例如 `嗯。`、`啊`、`呃呃`）
 - 默认通过频道插件触发 OpenClaw（ASR 文本 -> OpenClaw -> 流式回复 -> TTS）
 - 可选直连 OpenClaw Gateway（仅 standalone 调试）
 - 句子切分后低延迟 TTS
 - 阿里云实时 TTS（新 Realtime 协议）
 - Web 端流式音频播放
+- 浏览器调试页支持唤醒词模式、空格按住说话、可拖拽语音主按钮、开发模式开关
+- 左侧时间线按“用户输入 -> OpenClaw 回复”成对展示
 - OpenClaw 频道插件骨架（`openclaw-plugin/`）
 - 插件层与音频服务层协议文档（`contracts/`）
 
@@ -51,6 +53,7 @@
 
 - 提供浏览器调试 UI 与实时播放页面
 - 采集麦克风音频分片并通过 WebSocket 发送到服务端
+- 支持唤醒词自动单轮、手动 PTT、浏览器 TTS 回退，以及仅开发模式可见的调试面板
 
 ### 3. OpenClaw 插件层
 
@@ -187,9 +190,28 @@ npm run dev
 
 - `http://localhost:8080`
 
+如果 `HOST=0.0.0.0`，也可以使用服务启动日志中打印出的局域网地址，在同一网络的其他设备上访问。
+
 ### WebSocket 地址
 
 - `ws://localhost:8080/channel/voice/ws?token=<VOICE_GATEWAY_TOKEN>`
+
+## 当前 Web 调试页能力
+
+`client/` 现在不只是协议调试器，而是一个可用的语音联调页面：
+
+- 唤醒词模式，自动单轮提交
+- 按住 `Space` 说话（PTT）
+- 主语音按钮在空闲状态下可拖拽
+- 浏览器端实时播放返回的 PCM 音频
+- 每条 OpenClaw 回复上方展示对应的用户输入
+- 顶部设置面板提供“开发模式”开关；默认不显示调试面板
+
+行为说明：
+
+- `ASR_PROVIDER=browser` 时，浏览器识别文本通过 `input.asr.local` 发送。
+- `ASR_PROVIDER=aliyun` 时，浏览器发送音频分片，由服务端完成 ASR。
+- 像 `嗯。` 这类很短的误触 ASR 结果，会在转发到 OpenClaw 前被服务端直接丢弃。
 
 ## 测试
 
@@ -207,6 +229,15 @@ npm run build
 3. 录音并提交，确认出现 `vad.segment` 和 `asr.text`。
 4. 最终确认 `audio.output.completed` 事件。
 
+推荐的 UI 联调矩阵：
+
+1. `ASR_PROVIDER=aliyun`，`TTS_PROVIDER=aliyun`
+2. `ASR_PROVIDER=browser`，`TTS_PROVIDER=aliyun`
+3. 开启唤醒模式，验证静音后自动提交
+4. 关闭唤醒模式，验证空格按住说话
+5. 开启开发模式，确认调试面板出现
+6. 故意触发一个很短的误识别，比如 `嗯。`，确认不会发送给 OpenClaw
+
 唤醒词自动单轮测试建议：
 
 1. 保持调试页连接成功，并确认“唤醒模式”为开启。
@@ -214,6 +245,14 @@ npm run build
 3. 先说唤醒词，再说问题（依赖 Chrome SpeechRecognition）。
 4. 停止说话约 `1200ms` 后应自动提交（日志出现 `turn.auto_commit`）。
 5. 等待助手播报完成后应自动回到待命（日志出现 `wake.resumed`）。
+
+空格按住说话（PTT）测试建议：
+
+1. 关闭唤醒模式。
+2. 让页面保持焦点，按住 `Space`。
+3. 按住时说话。
+4. 松开 `Space` 后应立即提交。
+5. 确认左侧时间线中，这条用户输入显示在对应回复上方。
 
 ## 接入 OpenClaw 的步骤
 
@@ -262,8 +301,10 @@ docker compose up --build
 ## 当前限制
 
 - `browser` ASR 依赖前端发送 `input.asr.local`，并取决于浏览器 `SpeechRecognition` 能力。
+- 浏览器唤醒词模式同样依赖 `SpeechRecognition`，当前实际目标浏览器是 Chrome。
 - `openclaw-plugin/` 为骨架实现，需按你的 OpenClaw 版本调整。
 - `aliyun` ASR 依赖阿里云实时接口可用性与账号权限。
+- 当前短文本过滤是启发式规则；如果你需要更精细的控制，建议把阈值继续做成可配置项。
 
 ## 后续计划
 

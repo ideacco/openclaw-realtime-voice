@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#8fcbff" />
+      <stop offset="34%" stop-color="#b9dbff" />
+      <stop offset="64%" stop-color="#d5d9d3" />
+      <stop offset="100%" stop-color="#8fc2ff" />
+    </linearGradient>
+    <linearGradient id="lake" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#74beff" />
+      <stop offset="38%" stop-color="#4a8fff" />
+      <stop offset="72%" stop-color="#2b61d8" />
+      <stop offset="100%" stop-color="#8fc9ff" />
+    </linearGradient>
+    <linearGradient id="ridgeA" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#d9ebf8" />
+      <stop offset="100%" stop-color="#84b6da" />
+    </linearGradient>
+    <linearGradient id="ridgeB" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#9bd0ff" />
+      <stop offset="100%" stop-color="#4b8fd3" />
+    </linearGradient>
+    <radialGradient id="sunGlow" cx="32%" cy="18%" r="44%">
+      <stop offset="0%" stop-color="#fff2c7" stop-opacity="0.84" />
+      <stop offset="52%" stop-color="#fff2c7" stop-opacity="0.16" />
+      <stop offset="100%" stop-color="#fff2c7" stop-opacity="0" />
+    </radialGradient>
+    <filter id="blurXL" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="48" />
+    </filter>
+    <filter id="blurMD" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="22" />
+    </filter>
+  </defs>
+
+  <rect width="1920" height="1080" fill="url(#sky)" />
+  <rect width="1920" height="1080" fill="url(#sunGlow)" />
+
+  <g opacity="0.72" filter="url(#blurXL)">
+    <path d="M-40 754 C220 664 436 634 694 648 C906 660 1122 736 1404 716 C1640 700 1784 622 1960 570 L1960 1080 L-40 1080 Z" fill="#d9e8ef" />
+    <path d="M-60 818 C178 738 478 732 728 782 C934 822 1204 900 1450 878 C1652 860 1828 782 1980 714 L1980 1080 L-60 1080 Z" fill="#93c1e1" />
+  </g>
+
+  <g opacity="0.92">
+    <path d="M1310 250 C1490 276 1702 368 1914 560 C1704 514 1540 486 1364 482 C1222 478 1110 500 992 560 C1076 398 1164 314 1310 250 Z" fill="url(#ridgeA)" filter="url(#blurMD)" />
+    <path d="M1210 326 C1456 366 1692 510 1948 748 C1730 700 1566 670 1368 674 C1222 678 1088 722 946 804 C1026 576 1108 422 1210 326 Z" fill="url(#ridgeB)" filter="url(#blurMD)" />
+  </g>
+
+  <path d="M-30 790 C244 724 524 716 826 802 C1064 870 1326 972 1608 938 C1784 916 1898 848 1968 790 L1968 1080 L-30 1080 Z" fill="url(#lake)" />
+  <path d="M-30 836 C246 782 524 790 820 864 C1068 926 1328 1018 1602 988 C1774 970 1896 922 1968 872 L1968 1080 L-30 1080 Z" fill="#2f6be0" opacity="0.44" />
+
+  <g opacity="0.82" filter="url(#blurMD)">
+    <path d="M-80 920 C164 882 430 884 706 968 C888 1022 1040 1080 1258 1080 L-80 1080 Z" fill="#f1f3ea" />
+    <path d="M1260 860 C1456 826 1688 842 1980 978 L1980 1080 L1260 1080 Z" fill="#d9f0f5" />
+  </g>
+
+  <path d="M1260 224 C1490 258 1710 352 1936 560" fill="none" stroke="rgba(255,255,255,0.72)" stroke-width="5" stroke-linecap="round" opacity="0.84" />
+  <path d="M34 962 C348 896 706 906 1038 1026" fill="none" stroke="rgba(255,255,255,0.22)" stroke-width="3" stroke-linecap="round" opacity="0.7" />
+</svg>

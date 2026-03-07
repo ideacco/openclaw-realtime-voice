@@ -7,13 +7,16 @@ const stopBtn = document.getElementById('stopBtn');
 const speakBtn = document.getElementById('speakBtn');
 const wakeToggleBtn = document.getElementById('wakeToggleBtn');
 const pttToggleBtn = document.getElementById('pttToggleBtn');
+const devModeToggleBtn = document.getElementById('devModeToggleBtn');
 const wakeWordsInput = document.getElementById('wakeWordsInput');
 const silenceMsInput = document.getElementById('silenceMsInput');
 const wakeStateEl = document.getElementById('wakeStateLabel');
+const voiceDockEl = document.querySelector('.voice-dock');
+const controlDrawerEl = document.querySelector('.control-drawer');
+const debugPanelEl = document.getElementById('debugPanel');
 const tokenInput = document.getElementById('token');
 const inputText = document.getElementById('inputText');
 const statusEl = document.getElementById('status');
-const recordStatusEl = document.getElementById('recordStatus');
 const logEl = document.getElementById('log');
 const liveTranscriptEl = document.getElementById('liveTranscript');
 const finalTranscriptEl = document.getElementById('finalTranscript');
@@ -29,12 +32,15 @@ const STORAGE_KEYS = {
   wakeEnabled: 'oc_voice_wake_enabled',
   wakeWords: 'oc_voice_wake_words',
   silenceMs: 'oc_voice_wake_silence_ms',
-  pttEnabled: 'oc_voice_ptt_enabled'
+  pttEnabled: 'oc_voice_ptt_enabled',
+  dockPosition: 'oc_voice_dock_position',
+  developerMode: 'oc_voice_developer_mode'
 };
 
 const DEFAULT_WAKE_WORDS = '你好老六';
 const DEFAULT_SILENCE_MS = 1200;
 const TURN_MAX_DURATION_MS = 12_000;
+const PTT_MAX_DURATION_MS = 90_000;
 const WAKE_RESUME_DELAY_MS = 1200;
 const WAKE_CAPTURE_PRIMING_MS = 1400;
 const WAKE_MIN_CAPTURE_MS = 2200;
@@ -70,6 +76,9 @@ let speechRecognitionBlocked = false;
 let speechRecognitionRestarting = false;
 
 let assistantStream = '';
+let assistantReplies = [];
+let assistantReplySerial = 0;
+let pendingUserPrompt = '';
 let asrProvider = 'unknown';
 let ttsProvider = 'unknown';
 let llmEnabled = false;
@@ -84,6 +93,7 @@ let wakeChimeUnsupportedLogged = false;
 
 let wakeModeEnabled = readBool(STORAGE_KEYS.wakeEnabled, true);
 let pushToTalkEnabled = readBool(STORAGE_KEYS.pttEnabled, true);
+let developerModeEnabled = readBool(STORAGE_KEYS.developerMode, false);
 let wakeWordsRaw = readString(STORAGE_KEYS.wakeWords, DEFAULT_WAKE_WORDS);
 let wakeSilenceMs = readNumber(STORAGE_KEYS.silenceMs, DEFAULT_SILENCE_MS, 600, 5000);
 let wakeWords = parseWakeWords(wakeWordsRaw);
@@ -93,6 +103,8 @@ let voiceState = STATE.DISCONNECTED;
 let wakeSuppressedUntil = 0;
 let wakeLockedByAssistant = false;
 let lastWakeDetectedAt = 0;
+let dockPosition = readDockPosition();
+let dockDragState = null;
 
 let turnSource = 'none';
 let turnFinalText = '';
@@ -114,7 +126,26 @@ let spaceTurnActive = false;
 initWakeControls();
 refreshControls();
 setVoiceState(STATE.DISCONNECTED, '未连接');
+status('点击连接');
 setLiveTranscript('（连接后自动进入唤醒待命）');
+applyDockPosition();
+bindDockDrag();
+
+document.addEventListener('pointerdown', (event) => {
+  if (!controlDrawerEl?.open) {
+    return;
+  }
+  if (controlDrawerEl.contains(event.target)) {
+    return;
+  }
+  controlDrawerEl.open = false;
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && controlDrawerEl?.open) {
+    controlDrawerEl.open = false;
+  }
+});
 
 connectBtn.addEventListener('click', () => {
   const token = tokenInput.value.trim();
@@ -151,7 +182,7 @@ connectBtn.addEventListener('click', () => {
   });
 
   ws.addEventListener('close', async () => {
-    status('未连接');
+    status('点击连接');
     setChannelLinkStatus('连接已断开');
     setChannelSessionId('-');
     sessionId = null;
@@ -189,16 +220,25 @@ disconnectBtn.addEventListener('click', async () => {
 });
 
 recordBtn.addEventListener('click', async () => {
+  if (!isOrbInteractive()) {
+    return;
+  }
   if (!isConnected()) {
     log('连接未建立');
+    return;
+  }
+  if (voiceState === STATE.CAPTURING_TURN) {
+    await commitTurn({ reason: 'orb_click', auto: false });
     return;
   }
   await beginTurn('manual');
 });
 
-stopBtn.addEventListener('click', async () => {
-  await commitTurn({ reason: 'manual_button', auto: false });
-});
+if (stopBtn) {
+  stopBtn.addEventListener('click', async () => {
+    await commitTurn({ reason: 'manual_button', auto: false });
+  });
+}
 
 speakBtn.addEventListener('click', () => {
   const text = inputText.value.trim();
@@ -212,6 +252,7 @@ speakBtn.addEventListener('click', () => {
   }
 
   send({ type: 'input.text', text });
+  pendingUserPrompt = text;
   setVoiceState(STATE.WAITING_ASSISTANT, '文本已发送，等待 OpenClaw 回复');
   assistantReplyStarted = false;
   suppressWakeForAssistant();
@@ -250,6 +291,13 @@ pttToggleBtn.addEventListener('click', () => {
   }
   log(`ptt.mode: ${pushToTalkEnabled ? 'enabled' : 'disabled'}`);
   refreshControls();
+});
+
+devModeToggleBtn.addEventListener('click', () => {
+  developerModeEnabled = !developerModeEnabled;
+  writeStorage(STORAGE_KEYS.developerMode, developerModeEnabled ? '1' : '0');
+  updateDeveloperModeUi();
+  applyDeveloperMode();
 });
 
 wakeWordsInput.addEventListener('change', () => {
@@ -342,6 +390,7 @@ function onServerEvent(event) {
       setChannelSessionId(event.sessionId);
 
       assistantStream = '';
+      pendingUserPrompt = '';
       setAssistantStream('-');
       stopBrowserTts();
       clearTurnTimers();
@@ -376,6 +425,9 @@ function onServerEvent(event) {
       break;
 
     case 'message.created':
+      if (event.message?.role === 'user' && event.message?.content) {
+        pendingUserPrompt = String(event.message.content);
+      }
       setChannelLinkStatus('已提交用户文本，等待 OpenClaw 流式回复');
       log(`message.created: ${event.message.content}`);
       break;
@@ -539,6 +591,7 @@ async function commitTurn(options = { reason: 'silence', auto: true }) {
       isFinal: true
     });
 
+    pendingUserPrompt = localText;
     finalTranscriptEl.textContent = `服务端 ASR 结果：${localText}`;
     log(`turn.auto_commit source=${turnSource} reason=${reason} provider=browser text=${localText}`);
 
@@ -563,6 +616,10 @@ async function commitTurn(options = { reason: 'silence', auto: true }) {
 
 function noteTurnSpeechActivity() {
   if (voiceState !== STATE.CAPTURING_TURN) {
+    return;
+  }
+  // Push-to-talk should commit on key release, not by silence timer.
+  if (turnSource === 'ptt') {
     return;
   }
 
@@ -591,9 +648,10 @@ function startTurnMaxTimer() {
     clearTimeout(turnMaxTimer);
   }
 
+  const timeoutMs = turnSource === 'ptt' ? PTT_MAX_DURATION_MS : TURN_MAX_DURATION_MS;
   turnMaxTimer = window.setTimeout(() => {
-    void commitTurn({ reason: 'max_duration', auto: true });
-  }, TURN_MAX_DURATION_MS);
+    void commitTurn({ reason: turnSource === 'ptt' ? 'ptt_hard_limit' : 'max_duration', auto: true });
+  }, timeoutMs);
 }
 
 function clearTurnTimers() {
@@ -738,6 +796,7 @@ function suppressWakeForAssistant() {
 }
 
 function resumeWakeAfterTurn(reason) {
+  completeAssistantReply();
   clearTurnTimers();
   clearAssistantTimers();
   resetTurnBuffers();
@@ -1028,13 +1087,11 @@ async function startRecordingAudio() {
   try {
     await startPcmRecording();
     recordingMode = 'pcm';
-    recordStatus('录音中 (PCM 16-bit)');
     log('开始录音并推送音频分片 (PCM 16-bit)');
   } catch (error) {
     log(`PCM 录音启动失败，降级为 MediaRecorder: ${toErrorMessage(error)}`);
     await startMediaRecorderRecording();
     recordingMode = 'webm';
-    recordStatus('录音中 (WebM Opus)');
     log('开始录音并推送音频分片 (WebM Opus)');
   }
 }
@@ -1047,7 +1104,6 @@ async function stopRecordingAudio() {
   }
 
   recordingMode = null;
-  recordStatus('空闲');
 }
 
 async function startPcmRecording() {
@@ -1195,6 +1251,8 @@ function initWakeControls() {
   silenceMsInput.value = String(wakeSilenceMs);
   updateWakeToggleUi();
   updatePttToggleUi();
+  updateDeveloperModeUi();
+  applyDeveloperMode();
 }
 
 function updateWakeToggleUi() {
@@ -1203,6 +1261,20 @@ function updateWakeToggleUi() {
 
 function updatePttToggleUi() {
   pttToggleBtn.textContent = pushToTalkEnabled ? '空格按住说话：开' : '空格按住说话：关';
+}
+
+function updateDeveloperModeUi() {
+  devModeToggleBtn.textContent = developerModeEnabled ? '开发模式：开' : '开发模式：关';
+}
+
+function applyDeveloperMode() {
+  if (!debugPanelEl) {
+    return;
+  }
+  debugPanelEl.hidden = !developerModeEnabled;
+  if (!developerModeEnabled) {
+    debugPanelEl.open = false;
+  }
 }
 
 function updateWakeWords(rawValue) {
@@ -1218,6 +1290,7 @@ function updateWakeWords(rawValue) {
 
 function setVoiceState(nextState, note) {
   voiceState = nextState;
+  document.body.setAttribute('data-voice-state', nextState);
 
   let label = '未知';
   switch (nextState) {
@@ -1243,8 +1316,7 @@ function setVoiceState(nextState, note) {
       label = nextState;
   }
 
-  wakeStateEl.textContent = note ? `${label} / ${note}` : label;
-  recordStatus(note ?? label);
+  wakeStateEl.textContent = label;
   refreshControls();
 }
 
@@ -1260,28 +1332,40 @@ function refreshControls() {
   silenceMsInput.disabled = !connected;
 
   if (!connected) {
-    recordBtn.disabled = true;
-    stopBtn.disabled = true;
+    recordBtn.disabled = false;
+    recordBtn.setAttribute('aria-disabled', 'true');
+    recordBtn.classList.add('is-inactive');
+    if (stopBtn) {
+      stopBtn.disabled = true;
+    }
     return;
   }
 
   const canManualStart = voiceState === STATE.WAKE_IDLE || voiceState === STATE.MANUAL_READY;
   const canStop = voiceState === STATE.CAPTURING_TURN;
+  const canOrbToggle = canManualStart || canStop;
 
-  recordBtn.disabled = !canManualStart;
-  stopBtn.disabled = !canStop;
+  recordBtn.disabled = false;
+  recordBtn.setAttribute('aria-disabled', String(!canOrbToggle));
+  recordBtn.classList.toggle('is-inactive', !canOrbToggle);
+  if (stopBtn) {
+    stopBtn.disabled = !canStop;
+  }
 }
 
 function isConnected() {
   return Boolean(ws && ws.readyState === WebSocket.OPEN);
 }
 
-function status(text) {
-  statusEl.textContent = text;
+function isOrbInteractive() {
+  if (!isConnected()) {
+    return false;
+  }
+  return voiceState === STATE.WAKE_IDLE || voiceState === STATE.MANUAL_READY || voiceState === STATE.CAPTURING_TURN;
 }
 
-function recordStatus(text) {
-  recordStatusEl.textContent = text;
+function status(text) {
+  statusEl.textContent = text;
 }
 
 function setLiveTranscript(text) {
@@ -1306,15 +1390,116 @@ function setChannelLastError(text) {
 }
 
 function setAssistantStream(text) {
-  assistantStreamEl.textContent = text;
+  if (!text || text === '-') {
+    assistantStream = '';
+    assistantReplies = [];
+    assistantReplySerial = 0;
+    pendingUserPrompt = '';
+    renderAssistantReplies();
+    return;
+  }
+
+  assistantStream = text;
+  assistantReplySerial = 1;
+  assistantReplies = [
+    {
+      id: 'assistant-1',
+      index: 1,
+      prompt: pendingUserPrompt,
+      text,
+      complete: true
+    }
+  ];
+  pendingUserPrompt = '';
+  renderAssistantReplies();
 }
 
 function appendAssistantStream(delta) {
-  assistantStream += delta;
-  if (assistantStream.length > 8000) {
-    assistantStream = assistantStream.slice(-8000);
+  if (!delta) {
+    return;
   }
-  setAssistantStream(assistantStream || '-');
+
+  const reply = ensureAssistantReply();
+  reply.text += delta;
+  assistantStream = reply.text;
+  renderAssistantReplies();
+}
+
+function ensureAssistantReply() {
+  const latest = assistantReplies[assistantReplies.length - 1];
+  if (latest && !latest.complete) {
+    return latest;
+  }
+
+  assistantReplySerial += 1;
+  const reply = {
+    id: `assistant-${assistantReplySerial}`,
+    index: assistantReplySerial,
+    prompt: pendingUserPrompt,
+    text: '',
+    complete: false
+  };
+
+  assistantReplies.push(reply);
+  pendingUserPrompt = '';
+  if (assistantReplies.length > 16) {
+    assistantReplies = assistantReplies.slice(-16);
+  }
+  return assistantReplies[assistantReplies.length - 1];
+}
+
+function completeAssistantReply() {
+  const latest = assistantReplies[assistantReplies.length - 1];
+  if (!latest || latest.complete) {
+    return;
+  }
+
+  latest.complete = true;
+  assistantStream = '';
+  renderAssistantReplies();
+}
+
+function renderAssistantReplies() {
+  if (!assistantReplies.length) {
+    assistantStreamEl.innerHTML = `
+      <article class="assistant-entry assistant-entry-empty">
+        <p class="assistant-entry-label">等待回复</p>
+        <p class="assistant-entry-body">OpenClaw 的回复会直接在这里铺开显示。</p>
+      </article>
+    `;
+    return;
+  }
+
+  assistantStreamEl.innerHTML = assistantReplies
+    .map((reply) => {
+      const label = reply.complete ? `回复 ${String(reply.index).padStart(2, '0')}` : `回复 ${String(reply.index).padStart(2, '0')} · 生成中`;
+      const promptMarkup = reply.prompt
+        ? `
+          <div class="assistant-entry-prompt">
+            <p class="assistant-entry-prompt-label">你的输入</p>
+            <p class="assistant-entry-prompt-body">${escapeHtml(reply.prompt)}</p>
+          </div>
+        `
+        : '';
+      return `
+        <article class="assistant-entry${reply.complete ? '' : ' assistant-entry-current'}" data-reply-index="${reply.index}">
+          ${promptMarkup}
+          <p class="assistant-entry-label">${escapeHtml(label)}</p>
+          <p class="assistant-entry-body">${escapeHtml(reply.text || '...')}</p>
+        </article>
+      `;
+    })
+    .join('');
+}
+
+function escapeHtml(text) {
+  return String(text)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
+    .replaceAll('\n', '<br />');
 }
 
 function setLastServerEvent(text) {
@@ -1399,6 +1584,130 @@ function writeStorage(key, value) {
   } catch {
     // noop
   }
+}
+
+function readDockPosition() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.dockPosition);
+    if (!raw) {
+      return { x: 0, y: 0 };
+    }
+    const parsed = JSON.parse(raw);
+    const x = Number(parsed?.x);
+    const y = Number(parsed?.y);
+    return {
+      x: Number.isFinite(x) ? x : 0,
+      y: Number.isFinite(y) ? y : 0
+    };
+  } catch {
+    return { x: 0, y: 0 };
+  }
+}
+
+function writeDockPosition() {
+  writeStorage(STORAGE_KEYS.dockPosition, JSON.stringify(dockPosition));
+}
+
+function applyDockPosition() {
+  if (!voiceDockEl) {
+    return;
+  }
+  if (window.innerWidth <= 980) {
+    voiceDockEl.style.removeProperty('--dock-offset-x');
+    voiceDockEl.style.removeProperty('--dock-offset-y');
+    return;
+  }
+  voiceDockEl.style.setProperty('--dock-offset-x', `${dockPosition.x}px`);
+  voiceDockEl.style.setProperty('--dock-offset-y', `${dockPosition.y}px`);
+}
+
+function clampDockPosition(nextX, nextY) {
+  if (!voiceDockEl || window.innerWidth <= 980) {
+    return { x: 0, y: 0 };
+  }
+
+  const rect = voiceDockEl.getBoundingClientRect();
+  const baseLeft = rect.left - dockPosition.x;
+  const baseTop = rect.top - dockPosition.y;
+  const minLeft = 12;
+  const minTop = 72;
+  const maxRight = window.innerWidth - 12;
+  const maxBottom = window.innerHeight - 12;
+  const minX = minLeft - baseLeft;
+  const maxX = maxRight - (baseLeft + rect.width);
+  const minY = minTop - baseTop;
+  const maxY = maxBottom - (baseTop + rect.height);
+
+  return {
+    x: Math.min(maxX, Math.max(minX, nextX)),
+    y: Math.min(maxY, Math.max(minY, nextY))
+  };
+}
+
+function bindDockDrag() {
+  if (!voiceDockEl || !recordBtn) {
+    return;
+  }
+
+  window.addEventListener('resize', () => {
+    dockPosition = clampDockPosition(dockPosition.x, dockPosition.y);
+    applyDockPosition();
+    writeDockPosition();
+  });
+
+  voiceDockEl.addEventListener('pointerdown', (event) => {
+    if (window.innerWidth <= 980) {
+      return;
+    }
+    if (!(event.target instanceof Node) || !recordBtn.contains(event.target)) {
+      return;
+    }
+    if (isOrbInteractive()) {
+      return;
+    }
+
+    dockDragState = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: dockPosition.x,
+      originY: dockPosition.y
+    };
+    voiceDockEl.setPointerCapture(event.pointerId);
+    recordBtn.classList.add('is-dragging');
+    event.preventDefault();
+  });
+
+  voiceDockEl.addEventListener('pointermove', (event) => {
+    if (!dockDragState || dockDragState.pointerId !== event.pointerId) {
+      return;
+    }
+
+    const next = clampDockPosition(
+      dockDragState.originX + (event.clientX - dockDragState.startX),
+      dockDragState.originY + (event.clientY - dockDragState.startY)
+    );
+
+    dockPosition = next;
+    applyDockPosition();
+  });
+
+  const stopDrag = (event) => {
+    if (!dockDragState || dockDragState.pointerId !== event.pointerId) {
+      return;
+    }
+    dockPosition = clampDockPosition(dockPosition.x, dockPosition.y);
+    applyDockPosition();
+    writeDockPosition();
+    recordBtn.classList.remove('is-dragging');
+    if (voiceDockEl.hasPointerCapture(event.pointerId)) {
+      voiceDockEl.releasePointerCapture(event.pointerId);
+    }
+    dockDragState = null;
+  };
+
+  voiceDockEl.addEventListener('pointerup', stopDrag);
+  voiceDockEl.addEventListener('pointercancel', stopDrag);
 }
 
 function parseWakeWords(raw) {

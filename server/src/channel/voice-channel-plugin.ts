@@ -479,6 +479,10 @@ export class VoiceChannelPlugin {
       return;
     }
 
+    if (source === 'asr' && shouldDropAsrText(text)) {
+      return;
+    }
+
     this.touch(state.ws);
 
     const createdEvent: ServerEvent = {
@@ -677,6 +681,30 @@ function mergeAsrText(previous: string, incoming: string): string {
   return `${left}${needsSpace ? ' ' : ''}${right}`;
 }
 
+function shouldDropAsrText(text: string): boolean {
+  const normalized = normalizeSpeechText(text);
+  if (!normalized) {
+    return true;
+  }
+
+  if (normalized.length > 4) {
+    return false;
+  }
+
+  if (FILLER_UTTERANCES.has(normalized)) {
+    return true;
+  }
+
+  return /^[嗯啊呃额唔哦噢哎诶欸哈]+$/.test(normalized);
+}
+
+function normalizeSpeechText(text: string): string {
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/[\\s,.!?;:'"“”‘’()\\[\\]{}<>，。！？；：、…·]/g, '');
+}
+
 function isUpstreamFailure(message: string): boolean {
   const text = message.toLowerCase();
   return (
@@ -687,3 +715,28 @@ function isUpstreamFailure(message: string): boolean {
     text.includes('transcription')
   );
 }
+
+const FILLER_UTTERANCES = new Set([
+  '嗯',
+  '嗯嗯',
+  '啊',
+  '啊啊',
+  '呃',
+  '呃呃',
+  '额',
+  '额额',
+  '唔',
+  '唔唔',
+  '哦',
+  '哦哦',
+  '噢',
+  '噢噢',
+  '哎',
+  '哎哎',
+  '诶',
+  '诶诶',
+  '欸',
+  '欸欸',
+  '哈',
+  '哈哈'
+]);

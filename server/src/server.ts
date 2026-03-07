@@ -150,6 +150,9 @@ function contentType(filePath: string): string {
   if (filePath.endsWith('.js')) {
     return 'application/javascript; charset=utf-8';
   }
+  if (filePath.endsWith('.svg')) {
+    return 'image/svg+xml';
+  }
   return 'application/octet-stream';
 }
 

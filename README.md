@@ -142,6 +142,7 @@ Use `server/.env` with provider-neutral keys:
 - `ASR_LANGUAGE`: recognition language (default `zh`)
 - `ASR_SAMPLE_RATE`: ASR input sample rate (default `16000`)
 - `VOICE_IDLE_TIMEOUT_MS`: web session idle timeout in ms. Set `0` to disable auto-disconnect (recommended for persistent wake-word mode).
+- `WAKE_WORDS`: comma-separated wake words served to the web client from `server/.env` (for example `你好老六,老六`)
 - `TTS_PROVIDER`: `aliyun` or `browser`
 - `TTS_URL`: realtime TTS websocket endpoint
 - `TTS_MODEL`: realtime TTS model name
@@ -209,6 +210,7 @@ Behavior notes:
 
 - In `ASR_PROVIDER=browser`, browser transcript is sent with `input.asr.local`.
 - In `ASR_PROVIDER=aliyun`, audio chunks are sent to server-side ASR.
+- Wake words are now sourced from `server/.env` via `WAKE_WORDS`; the debug panel shows them as read-only.
 - Very short filler ASR outputs such as `嗯。` are dropped before they are forwarded to OpenClaw.
 
 ## Testing
@@ -239,7 +241,7 @@ Recommended UI matrix:
 Wake-word auto turn (single-turn) checklist:
 
 1. Keep debug page connected and ensure `Wake Mode` is enabled.
-2. Set wake words (comma-separated), default is `你好老六`.
+2. Set `WAKE_WORDS` in `server/.env` and restart the server. Default is `你好老六`.
 3. Say wake word and then your query (Chrome SpeechRecognition required).
 4. Stop speaking for ~`1200ms`; the page should auto-commit (`turn.auto_commit` log).
 5. Wait for assistant reply and playback; after completion it should resume to wake idle automatically (`wake.resumed` log).

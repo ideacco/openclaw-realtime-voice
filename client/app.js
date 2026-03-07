@@ -30,7 +30,6 @@ const player = new PcmAudioPlayer(24000);
 
 const STORAGE_KEYS = {
   wakeEnabled: 'oc_voice_wake_enabled',
-  wakeWords: 'oc_voice_wake_words',
   silenceMs: 'oc_voice_wake_silence_ms',
   pttEnabled: 'oc_voice_ptt_enabled',
   dockPosition: 'oc_voice_dock_position',
@@ -94,7 +93,7 @@ let wakeChimeUnsupportedLogged = false;
 let wakeModeEnabled = readBool(STORAGE_KEYS.wakeEnabled, true);
 let pushToTalkEnabled = readBool(STORAGE_KEYS.pttEnabled, true);
 let developerModeEnabled = readBool(STORAGE_KEYS.developerMode, false);
-let wakeWordsRaw = readString(STORAGE_KEYS.wakeWords, DEFAULT_WAKE_WORDS);
+let wakeWordsRaw = DEFAULT_WAKE_WORDS;
 let wakeSilenceMs = readNumber(STORAGE_KEYS.silenceMs, DEFAULT_SILENCE_MS, 600, 5000);
 let wakeWords = parseWakeWords(wakeWordsRaw);
 let wakeWordsNormalized = wakeWords.map((word) => normalizeForWake(word)).filter(Boolean);
@@ -130,6 +129,7 @@ status('点击连接');
 setLiveTranscript('（连接后自动进入唤醒待命）');
 applyDockPosition();
 bindDockDrag();
+void loadClientConfig();
 
 document.addEventListener('pointerdown', (event) => {
   if (!controlDrawerEl?.open) {
@@ -298,14 +298,6 @@ devModeToggleBtn.addEventListener('click', () => {
   writeStorage(STORAGE_KEYS.developerMode, developerModeEnabled ? '1' : '0');
   updateDeveloperModeUi();
   applyDeveloperMode();
-});
-
-wakeWordsInput.addEventListener('change', () => {
-  updateWakeWords(wakeWordsInput.value);
-});
-
-wakeWordsInput.addEventListener('blur', () => {
-  updateWakeWords(wakeWordsInput.value);
 });
 
 silenceMsInput.addEventListener('change', () => {
@@ -1248,6 +1240,7 @@ function send(payload) {
 
 function initWakeControls() {
   wakeWordsInput.value = wakeWordsRaw;
+  wakeWordsInput.readOnly = true;
   silenceMsInput.value = String(wakeSilenceMs);
   updateWakeToggleUi();
   updatePttToggleUi();
@@ -1284,8 +1277,25 @@ function updateWakeWords(rawValue) {
   wakeWordsRaw = wakeWords.join(',');
   wakeWordsInput.value = wakeWordsRaw;
   wakeWordsNormalized = wakeWords.map((word) => normalizeForWake(word)).filter(Boolean);
-  writeStorage(STORAGE_KEYS.wakeWords, wakeWordsRaw);
   log(`wake.words: ${wakeWordsRaw}`);
+}
+
+async function loadClientConfig() {
+  try {
+    const response = await fetch('/client-config.json', { cache: 'no-store' });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const config = await response.json();
+    if (Array.isArray(config?.wakeWords)) {
+      updateWakeWords(config.wakeWords.join(','));
+      return;
+    }
+  } catch (error) {
+    log(`client.config fallback: ${toErrorMessage(error)}`);
+  }
+
+  updateWakeWords(DEFAULT_WAKE_WORDS);
 }
 
 function setVoiceState(nextState, note) {

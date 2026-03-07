@@ -25,6 +25,10 @@ const host = process.env.HOST ?? '0.0.0.0';
 const token = process.env.VOICE_GATEWAY_TOKEN ?? 'dev-token';
 const idleTimeoutRaw = Number(process.env.VOICE_IDLE_TIMEOUT_MS ?? 60_000);
 const idleTimeoutMs = Number.isFinite(idleTimeoutRaw) ? idleTimeoutRaw : 60_000;
+const wakeWords = (process.env.WAKE_WORDS?.trim() || '你好老六')
+  .split(',')
+  .map((item) => item.trim())
+  .filter(Boolean);
 const asrProvider = parseAsrProvider(process.env.ASR_PROVIDER) ?? 'aliyun';
 const ttsProvider = parseTtsProvider(process.env.TTS_PROVIDER) ?? 'aliyun';
 const speechApiKey = envWithFallback('SPEECH_API_KEY', 'ALIYUN_API_KEY');
@@ -80,6 +84,15 @@ const openclawAdapter = openclawGatewayBaseUrl
 const server = createServer(async (req, res) => {
   try {
     const pathname = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`).pathname;
+    if (pathname === '/client-config.json') {
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(
+        JSON.stringify({
+          wakeWords
+        })
+      );
+      return;
+    }
     const normalizedPath = pathname === '/' ? '/index.html' : pathname;
     const filePath = path.join(webRoot, normalizedPath);
 

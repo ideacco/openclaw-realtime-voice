@@ -390,6 +390,9 @@ function extractCloseInfo(closeLike: unknown): { code: number; reason: string } 
 
 async function normalizeMessagePayload(messageLike: unknown): Promise<string | null> {
   let payload = messageLike;
+  if (Array.isArray(payload)) {
+    payload = payload[0];
+  }
   if (payload && typeof payload === 'object' && 'data' in (payload as any)) {
     payload = (payload as any).data;
   }

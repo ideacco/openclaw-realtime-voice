@@ -1,13 +1,29 @@
-# OpenClaw Voice Channel
+# OpenClaw Realtime Voice
 
-[English Version](./README.md)
+[English README](./README.md)
 
-这是一个面向 OpenClaw 的双层实时语音交互项目：
+OpenClaw Realtime Voice 是一套给 OpenClaw 使用的实时语音方案，包含两个必须一起工作的部分：
 
-- **音频服务层**：实时音频接入、VAD、ASR 抽象、LLM 文本到语音流水线、浏览器播放。
-- **OpenClaw 频道插件层**：OpenClaw Channel 插件骨架，负责连接 OpenClaw Runtime 与音频服务。
+1. `server/`：音频服务，负责浏览器连接、ASR、TTS、语音会话和调试页面。
+2. `openclaw-plugin/`：OpenClaw 频道插件，负责把 OpenClaw 和音频服务接起来。
 
-该仓库用于构建类似 ChatGPT Voice 的 OpenClaw 语音链路。
+这个仓库的目标很明确：把 OpenClaw 变成一个可通过浏览器直接进行实时语音交互的助手。
+
+## 这套软件到底是什么
+
+这不是“一个插件文件”，而是一条完整链路：
+
+`浏览器 -> 音频服务 -> ASR -> OpenClaw 插件 -> OpenClaw -> 插件 -> 音频服务 -> TTS -> 浏览器`
+
+所以安装时有一个核心原则：
+
+- 只安装插件，不会说话
+- 只启动音频服务，OpenClaw 不会收到消息
+
+你必须同时部署：
+
+- 本仓库里的 **音频服务**
+- 本仓库里的 **OpenClaw 插件**
 
 ## 界面截图
 
@@ -15,91 +31,148 @@
 
 ![语音界面截图 2](./ScreenShot_2.png)
 
-## 功能
+## 产品范围
 
-- 实时语音会话 WebSocket 入口（`/channel/voice/ws`）
-- 浏览器音频分片上传
-- VAD 切分（`input.audio.chunk` -> 语音段）
-- ASR 提供方可切换：`browser` / `aliyun`
-- 在转发到 OpenClaw 前过滤误触短 ASR 文本（例如 `嗯。`、`啊`、`呃呃`）
-- 默认通过频道插件触发 OpenClaw（ASR 文本 -> OpenClaw -> 流式回复 -> TTS）
-- 可选直连 OpenClaw Gateway（仅 standalone 调试）
-- 句子切分后低延迟 TTS
-- 阿里云实时 TTS（新 Realtime 协议）
-- Web 端流式音频播放
-- 浏览器调试页支持唤醒词模式、空格按住说话、可拖拽语音主按钮、开发模式开关
-- 左侧时间线按“用户输入 -> OpenClaw 回复”成对展示
-- OpenClaw 频道插件骨架（`openclaw-plugin/`）
-- 插件层与音频服务层协议文档（`contracts/`）
+当前已经覆盖：
 
-## 架构
+- 浏览器麦克风输入
+- VAD 切分
+- 实时 ASR（阿里云 / 浏览器转写模式）
+- OpenClaw 语音频道接入
+- OpenClaw 流式文本回复
+- 实时 TTS（阿里云 / 浏览器 TTS 回退）
+- 浏览器调试 UI（唤醒词、空格按住说话、开发面板）
 
-### 1. 音频服务层
+当前不做：
 
-位于 `server/src/`。
+- 生产级集群部署
+- 原生移动端
+- WebRTC 传输
+- 完整打磨的 barge-in 中断产品能力
 
-主流程：
+## 仓库结构
 
-`音频输入 -> VAD -> ASR -> 文本流 -> 分句 -> 实时 TTS -> 音频分片`
+```text
+openclaw-realtime-voice/
+├── server/             # Node.js 音频服务
+├── client/             # 浏览器调试 UI（由 server 提供）
+├── openclaw-plugin/    # OpenClaw 频道插件
+├── contracts/          # 协议与生命周期文档
+└── docker-compose.yml  # 可选的容器启动方式
+```
 
-关键模块：
+## 架构说明
 
-- `server/src/channel/voice-channel-plugin.ts`：会话编排与 WS 事件路由
-- `server/src/vad/simple-vad.ts`：基于静音/能量阈值切分
-- `server/src/asr/realtime-asr-client.ts`：ASR 接口 + browser 实现
-- `server/src/asr/aliyun-realtime-asr-client.ts`：阿里云实时 ASR 客户端
-- `server/src/tts/aliyun-tts-client.ts`：阿里云实时 TTS 客户端
-- `server/src/pipeline/voice-agent.ts`：token 到 TTS 的流式控制器
+### 组件划分
 
-### 2. Client 层
+1. `server/`
+   - 暴露 `http://<host>:8080`
+   - 暴露 `ws://<host>:8080/channel/voice/ws?token=...`
+   - 提供浏览器调试页面
+   - 接收浏览器音频或文本
+   - 执行 VAD / ASR / TTS
+   - 在插件模式或 gateway 模式下转发给 OpenClaw
 
-位于 `client/`。
+2. `openclaw-plugin/`
+   - 在 OpenClaw 中注册 `voice` channel
+   - 主动连接音频服务 websocket
+   - 把 OpenClaw 的回复文本再转发回音频服务
 
-职责：
+3. `client/`
+   - 浏览器调试 UI
+   - 唤醒词模式
+   - 空格按住说话（PTT）
+   - 流式音频播放
+   - 开发调试面板
 
-- 提供浏览器调试 UI 与实时播放页面
-- 采集麦克风音频分片并通过 WebSocket 发送到服务端
-- 支持唤醒词自动单轮、手动 PTT、浏览器 TTS 回退，以及仅开发模式可见的调试面板
+### 运行模式
 
-### 3. OpenClaw 插件层
+这套仓库支持两种接入模式。
 
-位于 `openclaw-plugin/`。
+1. `plugin` 模式
+   - 默认模式
+   - 推荐模式
+   - OpenClaw 加载 `openclaw-plugin/`
+   - 音频服务等待插件连入
+   - 浏览器输入通过插件转成 OpenClaw 频道消息
 
-职责：
+2. `gateway` 模式
+   - 仅用于 standalone 调试
+   - 在 `server/.env` 中设置 `OPENCLAW_GATEWAY_BASE_URL` 后启用
+   - 音频服务直接调用 OpenClaw HTTP 接口
+   - 不依赖 OpenClaw 插件 websocket peer
 
-- 在 OpenClaw 中注册 `voice` channel
-- 连接音频服务 WebSocket
-- 将 OpenClaw 输出文本转发给音频服务
+正常使用建议坚持 `plugin` 模式。
 
-关键文件：
+## 数据流
 
-- `openclaw-plugin/openclaw.plugin.json`
-- `openclaw-plugin/index.ts`
-- `openclaw-plugin/src/voice-channel-plugin.ts`
-- `openclaw-plugin/src/audio-service-client.ts`
+### 正常语音链路
 
-### 4. 跨层协议
+1. 浏览器连接音频服务 websocket。
+2. 浏览器发送音频分片。
+3. 音频服务执行 VAD 和 ASR。
+4. 音频服务把识别出的用户文本转发给 OpenClaw 插件。
+5. OpenClaw 流式返回文本。
+6. 插件把文本回传给音频服务。
+7. 音频服务分句并发送给实时 TTS。
+8. 浏览器接收流式音频并播放。
 
-事件结构和生命周期请参考：
+### 调试文本链路
 
-- `contracts/voice-channel-service-protocol.md`
+开发面板里的“发送文本”走的是：
 
-## 目录结构
+`调试文本 -> 音频服务 -> OpenClaw -> TTS -> 浏览器`
 
-- `server/`：实时语音 WebSocket 服务（Node.js）
-- `client/`：浏览器调试前端
-- `openclaw-plugin/`：OpenClaw 插件骨架
-- `contracts/`：接口契约文档
-- `docker-compose.yml`：可选的一键容器启动
+这条链路 **不经过 ASR**。
 
-## 安装说明
+## 先选部署拓扑
+
+这里最容易把人搞糊涂，所以先讲清楚。
+
+### 方案 A：OpenClaw 和音频服务在同一台机器
+
+这是最推荐的本地开发方式。
+
+适合：
+
+- OpenClaw 和本仓库的 `server/` 跑在同一台 Mac / Linux 上
+- 你希望配置最简单
+- 你先追求链路打通
+
+插件里使用：
+
+- `audioServiceBaseUrl = http://127.0.0.1:8080`
+- `audioServiceWsUrl = ws://127.0.0.1:8080/channel/voice/ws`
+
+### 方案 B：OpenClaw 和音频服务在局域网不同机器上
+
+适合：
+
+- OpenClaw 在机器 A
+- 本仓库 `server/` 在机器 B
+- 浏览器也可能从局域网别的机器访问调试 UI
+
+插件里使用：
+
+- `audioServiceBaseUrl = http://<音频服务局域网IP>:8080`
+- `audioServiceWsUrl = ws://<音频服务局域网IP>:8080/channel/voice/ws`
+
+这个方案有三个前提：
+
+- `server/.env` 中 `HOST=0.0.0.0`
+- OpenClaw 那台机器能执行 `curl http://<音频服务局域网IP>:8080/`
+- 如果 Wi-Fi 重新分配了 IP，必须同步更新 OpenClaw 插件配置
+
+## 快速开始
 
 ### 前置要求
 
 - Node.js 20+
 - npm 10+
+- OpenClaw 已经能正常运行
+- 如果使用阿里云 ASR 或 TTS，需要有效的语音 API Key
 
-### 安装步骤
+### 1. 安装音频服务
 
 ```bash
 cd server
@@ -107,167 +180,62 @@ npm install
 cp .env.example .env
 ```
 
-## 给 AI 代理的安装提示词
+然后编辑 `server/.env`。
 
-如果你就是 OpenClaw（AI 个人助理），那么请你直接按照以下操作：
+最小必填示例：
 
-```text
-请从当前 GitHub 仓库完成 OpenClaw Realtime Voice 项目的本地安装与验证。
-
-环境要求：
-- Node.js >= 20
-- npm >= 10
-- Linux/macOS shell
-
-在仓库根目录按顺序执行：
-1) cd server
-2) npm install
-3) cp .env.example .env（若不存在则创建）
-4) npm run check
-5) npm test
-6) npm run build
-7) npm run dev
-
-如果 npm install 因网络受限失败，使用代理后重试一次：
-export https_proxy=http://127.0.0.1:7897 http_proxy=http://127.0.0.1:7897 all_proxy=socks5://127.0.0.1:7897
-
-除非安装被阻塞，不要修改业务逻辑代码。
-结束时输出：
-- 各命令执行结果摘要
-- 服务是否成功启动
-- 本地访问 URL 与 WebSocket URL
-- 未解决错误与对应失败命令
+```env
+HOST=0.0.0.0
+PORT=8080
+VOICE_GATEWAY_TOKEN=dev-token
+SPEECH_API_KEY=your-key
+ASR_PROVIDER=aliyun
+TTS_PROVIDER=aliyun
+WAKE_WORDS=你好老六
 ```
 
-## 配置说明
+### 2. 启动音频服务
 
-在 `server/.env` 中使用通用变量：
-
-- `SPEECH_API_KEY`：语音服务密钥
-- `ASR_PROVIDER`：`browser` 或 `aliyun`
-- `ASR_URL`：实时 ASR WebSocket 地址
-- `ASR_MODEL`：ASR 模型名
-- `ASR_LANGUAGE`：识别语言（默认 `zh`）
-- `ASR_SAMPLE_RATE`：ASR 输入采样率（默认 `16000`）
-- `VOICE_IDLE_TIMEOUT_MS`：Web 会话空闲超时（毫秒）。设为 `0` 表示禁用自动断开（唤醒词常驻模式推荐）。
-- `WAKE_WORDS`：服务端下发给 Web 页的唤醒词列表，逗号分隔（例如 `你好老六,老六`）
-- `TTS_PROVIDER`：`aliyun` 或 `browser`
-- `TTS_URL`：实时 TTS WebSocket 地址
-- `TTS_MODEL`：实时 TTS 模型名
-- `TTS_VOICE`：音色
-- `TTS_FORMAT`：当前支持 `pcm`
-- `TTS_SAMPLE_RATE`：输出采样率（如 `24000`）
-- `TTS_MODE`：`server_commit` 或 `commit`
-- `OPENCLAW_GATEWAY_BASE_URL`：OpenClaw Gateway HTTP 地址（可选，仅 standalone 调试）
-- `OPENCLAW_GATEWAY_TOKEN`：OpenClaw Gateway Bearer Token（可选）
-- `OPENCLAW_AGENT_ID`：OpenClaw agent id（默认 `main`）
-- `OPENCLAW_REQUEST_MODEL`：请求里的 model 字段，通常保持 `openclaw`
-- `OPENCLAW_CHAT_PATH`：Chat Completions 路径（默认 `/v1/chat/completions`）
-- `OPENCLAW_TIMEOUT_MS`：Gateway 请求超时毫秒数
-
-兼容说明：
-
-- 旧的 `ALIYUN_*` 变量仍可作为回退读取。
-
-文本事件路由（默认 `llmMode=plugin`）：
-
-- `input.text`：用户文本事件（插件模式下由 OpenClaw 频道插件消费并触发 OpenClaw）
-- `input.assistant.text`：文本已由 OpenClaw 生成 -> 仅做实时 TTS
-
-ASR 模式示例：
-
-- 云端 ASR（阿里云）：`ASR_PROVIDER=aliyun`
-- 浏览器本地识别转写回传：`ASR_PROVIDER=browser`
-
-TTS 模式示例：
-
-- 云端 TTS（返回音频分片）：`TTS_PROVIDER=aliyun`
-- 浏览器本地 TTS（调试页 `speechSynthesis`）：`TTS_PROVIDER=browser`
-
-## 运行
-
-### 启动音频服务
+直接用 Node：
 
 ```bash
 cd server
 npm run dev
 ```
 
+正常启动后应该看到类似日志：
+
+```text
+[voice-channel] server started: http://localhost:8080
+[voice-channel] lan url: http://<lan-ip>:8080
+[voice-channel] websocket: ws://localhost:8080/channel/voice/ws?token=dev-token
+```
+
 然后打开：
 
 - `http://localhost:8080`
+- 或者日志里打印的局域网地址
 
-如果 `HOST=0.0.0.0`，也可以使用服务启动日志中打印出的局域网地址，在同一网络的其他设备上访问。
+### 3. 安装 OpenClaw 插件
 
-### WebSocket 地址
+把 `openclaw-plugin/` 复制到 OpenClaw 实际使用的插件目录。
 
-- `ws://localhost:8080/channel/voice/ws?token=<VOICE_GATEWAY_TOKEN>`
-
-## 当前 Web 调试页能力
-
-`client/` 现在不只是协议调试器，而是一个可用的语音联调页面：
-
-- 唤醒词模式，自动单轮提交
-- 按住 `Space` 说话（PTT）
-- 主语音按钮在空闲状态下可拖拽
-- 浏览器端实时播放返回的 PCM 音频
-- 每条 OpenClaw 回复上方展示对应的用户输入
-- 顶部设置面板提供“开发模式”开关；默认不显示调试面板
-
-行为说明：
-
-- `ASR_PROVIDER=browser` 时，浏览器识别文本通过 `input.asr.local` 发送。
-- `ASR_PROVIDER=aliyun` 时，浏览器发送音频分片，由服务端完成 ASR。
-- 唤醒词现在统一从 `server/.env` 的 `WAKE_WORDS` 下发；调试面板里只做只读展示，不再在前端修改。
-- 像 `嗯。` 这类很短的误触 ASR 结果，会在转发到 OpenClaw 前被服务端直接丢弃。
-
-## 测试
+常见示例：
 
 ```bash
-cd server
-npm run check
-npm test
-npm run build
+cp -R openclaw-plugin ~/clawd/plugins/voice-channel
+cd ~/clawd/plugins/voice-channel
+npm install
 ```
 
-手动测试建议：
+不要跳过插件目录里的 `npm install`。
+当前插件有自己的依赖声明。
 
-1. 在 Web UI 建立连接。
-2. 发送文本，确认出现 `assistant.text.delta` 和 `audio.output.delta`。
-3. 录音并提交，确认出现 `vad.segment` 和 `asr.text`。
-4. 最终确认 `audio.output.completed` 事件。
+### 4. 配置 OpenClaw
 
-推荐的 UI 联调矩阵：
+在 OpenClaw 配置文件中增加或更新插件配置。
 
-1. `ASR_PROVIDER=aliyun`，`TTS_PROVIDER=aliyun`
-2. `ASR_PROVIDER=browser`，`TTS_PROVIDER=aliyun`
-3. 开启唤醒模式，验证静音后自动提交
-4. 关闭唤醒模式，验证空格按住说话
-5. 开启开发模式，确认调试面板出现
-6. 故意触发一个很短的误识别，比如 `嗯。`，确认不会发送给 OpenClaw
-
-唤醒词自动单轮测试建议：
-
-1. 保持调试页连接成功，并确认“唤醒模式”为开启。
-2. 在 `server/.env` 中设置 `WAKE_WORDS` 并重启服务。默认值为 `你好老六`。
-3. 先说唤醒词，再说问题（依赖 Chrome SpeechRecognition）。
-4. 停止说话约 `1200ms` 后应自动提交（日志出现 `turn.auto_commit`）。
-5. 等待助手播报完成后应自动回到待命（日志出现 `wake.resumed`）。
-
-空格按住说话（PTT）测试建议：
-
-1. 关闭唤醒模式。
-2. 让页面保持焦点，按住 `Space`。
-3. 按住时说话。
-4. 松开 `Space` 后应立即提交。
-5. 确认左侧时间线中，这条用户输入显示在对应回复上方。
-
-## 接入 OpenClaw 的步骤
-
-1. 在 `server/` 目录启动音频服务。
-2. 将 `openclaw-plugin/` 复制到 OpenClaw 的 extensions 目录。
-3. 在插件目录先执行依赖安装：`npm install`。
-4. 在 `~/.openclaw/openclaw.json` 中配置插件必填项：
+同机部署示例：
 
 ```json
 {
@@ -286,36 +254,261 @@ npm run build
 }
 ```
 
-5. 安装插件或修改配置后，重启 OpenClaw。
-6. 执行 `openclaw status`，确认配置校验通过。
-7. 如果提示 `must have required property 'audioServiceBaseUrl'` 或 `audioServiceToken`，说明 `plugins.entries.voice-channel.config` 下缺少必填字段。
-8. 如果提示 `No WebSocket implementation found`，通常是 OpenClaw 运行时 Node 版本过低。请升级到 Node 22+；如果必须用旧版 Node，再在插件目录手动安装 `ws` 作为兼容回退。
+局域网异机部署示例：
 
-握手成功判据（OpenClaw 日志）：
+```json
+{
+  "plugins": {
+    "entries": {
+      "voice-channel": {
+        "enabled": true,
+        "config": {
+          "audioServiceBaseUrl": "http://192.168.31.188:8080",
+          "audioServiceToken": "dev-token",
+          "audioServiceWsUrl": "ws://192.168.31.188:8080/channel/voice/ws"
+        }
+      }
+    }
+  }
+}
+```
 
-- `[voice-channel][default] CONNECTING ...`
-- `[voice-channel][default] CONNECTED websocket`
-- `[voice-channel][default] STARTED sessionId=...`
+插件配置必填项：
 
-只有看到 `STARTED sessionId=...`，才表示频道与音频服务握手完成。
+- `audioServiceBaseUrl`
+- `audioServiceToken`
 
-## Docker Compose（可选）
+建议总是显式填写：
+
+- `audioServiceWsUrl`
+
+如果 OpenClaw 和音频服务不在同一台机器上，`audioServiceWsUrl` 必须显式写局域网地址。
+
+### 5. 重启 OpenClaw
+
+插件安装或配置修改后，必须重启 OpenClaw。
+
+然后查看 OpenClaw 日志。
+
+期望看到的握手过程：
+
+```text
+[voice-channel][default] CONNECTING ws://...
+[voice-channel][default] CONNECTED websocket
+[voice-channel][default] STARTED sessionId=...
+```
+
+只有出现 `STARTED sessionId=...`，才说明 OpenClaw 语音频道已经真正可用。
+
+## Docker 启动方式
+
+如果你想把音频服务放进容器：
 
 ```bash
-cp server/.env.example server/.env
 docker compose up --build
 ```
 
-## 当前限制
+对应文件：
 
-- `browser` ASR 依赖前端发送 `input.asr.local`，并取决于浏览器 `SpeechRecognition` 能力。
-- 浏览器唤醒词模式同样依赖 `SpeechRecognition`，当前实际目标浏览器是 Chrome。
-- `openclaw-plugin/` 为骨架实现，需按你的 OpenClaw 版本调整。
-- `aliyun` ASR 依赖阿里云实时接口可用性与账号权限。
-- 当前短文本过滤是启发式规则；如果你需要更精细的控制，建议把阈值继续做成可配置项。
+- [docker-compose.yml](./docker-compose.yml)
+- [server/Dockerfile](./server/Dockerfile)
 
-## 后续计划
+注意：
 
-- 增加 OpenAI 厂商实现
-- 支持全双工打断（barge-in）
-- 增加生产级观测与重试策略
+- Docker 仍然读取 `server/.env`
+- OpenClaw 插件配置里要写的是 **宿主机 IP**，不是容器 IP
+- 如果 Docker 拉不到 `node:20-alpine`，先修 Docker Desktop 的网络或代理配置
+
+## 什么时候用 Node，什么时候用 Docker
+
+### 直接用 Node
+
+适合：
+
+- 正在开发
+- 需要快速改代码、看日志、重启
+- 想减少排障变量
+
+### 用 Docker
+
+适合：
+
+- 想要一套更稳定的本地运行封装
+- 想隔离宿主机 Node 环境
+- 想让音频服务长时间运行在一台独立机器上
+
+对开发阶段来说，Node 模式通常更简单。
+
+## 关键配置说明
+
+`server/.env` 最重要的是下面这些字段。
+
+### 核心服务配置
+
+- `HOST`：监听地址。局域网部署必须是 `0.0.0.0`
+- `PORT`：默认 `8080`
+- `VOICE_GATEWAY_TOKEN`：websocket 访问 token，必须与 OpenClaw 插件配置一致
+- `VOICE_IDLE_TIMEOUT_MS`：空闲超时，设为 `0` 表示不自动断开
+- `WAKE_WORDS`：下发给前端页面的唤醒词列表
+
+### ASR
+
+- `SPEECH_API_KEY`
+- `ASR_PROVIDER=browser|aliyun`
+- `ASR_URL`
+- `ASR_MODEL`
+- `ASR_LANGUAGE`
+- `ASR_SAMPLE_RATE`
+
+### TTS
+
+- `TTS_PROVIDER=browser|aliyun`
+- `TTS_URL`
+- `TTS_MODEL`
+- `TTS_VOICE`
+- `TTS_FORMAT`
+- `TTS_SAMPLE_RATE`
+- `TTS_MODE=server_commit|commit`
+
+### 可选 Gateway 调试模式
+
+除非你明确要走 HTTP 直连 OpenClaw 调试，否则保持为空：
+
+- `OPENCLAW_GATEWAY_BASE_URL`
+- `OPENCLAW_GATEWAY_TOKEN`
+- `OPENCLAW_AGENT_ID`
+- `OPENCLAW_REQUEST_MODEL`
+- `OPENCLAW_CHAT_PATH`
+- `OPENCLAW_TIMEOUT_MS`
+
+只要 `OPENCLAW_GATEWAY_BASE_URL` 为空，server 就运行在 `plugin` 模式。
+
+## 浏览器调试页面能做什么
+
+这不是一个纯展示页面，而是联调用的工作台。
+
+支持：
+
+- 唤醒词模式
+- 空格按住说话（PTT）
+- 流式音频播放
+- 手动停止当前 TTS 播报
+- 开发模式调试面板
+- 左侧对话时间线
+- OpenClaw 回复的 Markdown 渲染
+
+当前行为：
+
+- 唤醒词从 `server/.env` 读取
+- 很短的 ASR 误触文本（例如 `嗯。`）会在服务端被过滤，不发送给 OpenClaw
+- 页面显示文本和 TTS 播报文本分开处理：页面保留格式，TTS 会做清洗后再合成
+
+## 如何验证整套系统已经跑通
+
+### 最小验证清单
+
+1. 启动音频服务。
+2. 打开浏览器调试页。
+3. 确认页面可以创建 websocket 会话。
+4. 确认 OpenClaw 插件日志里出现 `STARTED sessionId=...`。
+5. 说一句话或者发送调试文本。
+6. 确认能看到：
+   - `asr.text`
+   - `message.created`
+   - `assistant.text.delta`
+   - `audio.output.delta`
+   - `audio.output.completed`
+
+### 如果只有文本，没有声音
+
+按这个顺序排查：
+
+1. `TTS_PROVIDER` 是否真的是你预期的值
+2. 浏览器是否允许播放音频
+3. 上一轮是否手动点击过“停止播放”
+4. 服务端是否真的收到了 `audio.output.delta`
+5. OpenClaw 插件是否真正连接成功，而不是只有浏览器侧会话成功
+
+## 常见问题
+
+### `OpenClaw voice-channel plugin is not connected to audio service`
+
+含义：
+
+- 浏览器已经连上音频服务
+- 但 OpenClaw 插件 websocket peer 还没连上
+
+检查：
+
+1. OpenClaw 插件日志
+2. 插件配置中的 `audioServiceBaseUrl` 和 `audioServiceWsUrl`
+3. `VOICE_GATEWAY_TOKEN` 是否一致
+4. 音频服务的局域网 IP 是否已经变化
+
+### `Timed out waiting channel.started (10000ms)`
+
+含义：
+
+- 插件 websocket 已连接
+- 但启动握手未完成
+
+请确认使用的是本仓库最新的插件代码。旧版本插件存在启动 ack 竞态问题。
+
+### `connect ECONNREFUSED <ip>:8080`
+
+含义：
+
+- OpenClaw 能到这个 IP
+- 但这个 IP:端口上没有服务在接受连接
+
+建议直接检查：
+
+```bash
+lsof -iTCP:8080 -sTCP:LISTEN -n -P
+curl -v http://127.0.0.1:8080/
+curl -v http://<你的局域网IP>:8080/
+```
+
+### `connection timeout after 8000ms`
+
+含义：
+
+- 插件尝试连接音频服务
+- 但目标 IP 错了，或者路由不通
+
+最常见原因：Wi-Fi 重新给音频服务机器分配了新的局域网 IP。
+
+### OpenClaw 配置校验错误：`must have required property 'audioServiceBaseUrl'`
+
+说明插件配置不完整。
+必须补上：
+
+- `audioServiceBaseUrl`
+- `audioServiceToken`
+
+### `No WebSocket implementation found`
+
+说明 OpenClaw 运行时 Node 版本太旧。
+建议使用 Node 22+ 运行 OpenClaw，或者确保插件目录依赖已经安装完成。
+
+## 给 AI 代理的安装原则
+
+如果你把这个仓库交给 AI 代理安装，它必须按下面的顺序做：
+
+1. 安装 `server/`
+2. 配置 `server/.env`
+3. 启动音频服务
+4. 安装 `openclaw-plugin/` 到 OpenClaw
+5. 配置插件地址和 token
+6. 重启 OpenClaw
+7. 确认插件握手成功
+8. 最后再打开浏览器页面测试
+
+这个项目最常见的错误就是只装了一半。
+这套软件必须同时部署：音频服务 + OpenClaw 插件。
+
+## 额外文档
+
+- [English README](./README.md)
+- [插件说明](./openclaw-plugin/README.md)
+- [协议文档](./contracts/voice-channel-service-protocol.md)

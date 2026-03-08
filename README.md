@@ -1,13 +1,27 @@
-# OpenClaw Voice Channel
+# OpenClaw Realtime Voice
 
-[中文版本 (Chinese)](./README.cn.md)
+[中文文档](./README.cn.md)
 
-A two-layer realtime voice interaction project for OpenClaw:
+OpenClaw Realtime Voice is a two-part voice stack for OpenClaw:
 
-- **Audio Service Layer**: realtime audio ingestion, VAD, ASR abstraction, LLM token-to-speech pipeline, browser playback.
-- **OpenClaw Channel Plugin Layer**: OpenClaw channel plugin scaffold that bridges OpenClaw runtime and the audio service.
+1. `server/`: a realtime audio service that handles browser audio, ASR, TTS, and the voice websocket session.
+2. `openclaw-plugin/`: an OpenClaw channel plugin that connects OpenClaw to that audio service.
 
-This repository is designed to help you build a ChatGPT Voice-like flow on top of OpenClaw.
+This repository is for one job: make OpenClaw usable as a realtime voice assistant with a browser client.
+
+## What This Repository Actually Contains
+
+This project is not a single plugin file. It is a complete runtime path:
+
+`Browser -> Audio Service -> ASR -> OpenClaw Plugin -> OpenClaw -> Plugin -> Audio Service -> TTS -> Browser`
+
+That matters for installation. You must set up both sides:
+
+- the **audio service** in this repo
+- the **OpenClaw plugin** in this repo
+
+If you only install the plugin, nothing will speak.
+If you only run the audio service, OpenClaw will never receive or return channel messages.
 
 ## Screenshots
 
@@ -15,89 +29,150 @@ This repository is designed to help you build a ChatGPT Voice-like flow on top o
 
 ![Voice UI Screenshot 2](./ScreenShot_2.png)
 
-## Features
+## Product Scope
 
-- Realtime websocket voice session endpoint (`/channel/voice/ws`)
-- Audio chunk ingestion from browser client
-- VAD segmentation pipeline (`input.audio.chunk` -> segment)
-- Switchable ASR providers: `browser` / `aliyun`
-- Short filler ASR filtering before forwarding to OpenClaw (for example `嗯。`, `啊`, `呃呃`)
-- Default plugin-driven OpenClaw flow (ASR text -> OpenClaw -> streaming reply -> TTS)
-- Optional direct OpenClaw Gateway mode (standalone debug only)
-- Sentence segmentation for low-latency TTS
-- Aliyun realtime TTS integration (new realtime protocol)
-- Streaming audio chunk playback in web UI
-- Browser debug UI with wake-word mode, hold-space push-to-talk, draggable voice dock, and developer mode toggle
-- Left-side response timeline that renders `user prompt -> OpenClaw reply` pairs
-- OpenClaw channel plugin scaffold (`openclaw-plugin/`)
-- Contract document between plugin layer and audio service (`contracts/`)
+Current scope:
 
-## Architecture
+- Browser mic input
+- VAD segmentation
+- Realtime ASR (`aliyun` or browser transcript mode)
+- OpenClaw voice channel integration
+- Streaming OpenClaw text reply
+- Realtime TTS (`aliyun` or browser TTS fallback)
+- Browser debug UI for wake word, PTT, and playback
 
-### 1. Audio Service Layer
+Current non-goals:
 
-Located in `server/src/`.
-
-Main flow:
-
-`Audio Input -> VAD -> ASR -> Text Stream -> Sentence Segmenter -> Realtime TTS -> Audio Chunks`
-
-Key modules:
-
-- `server/src/channel/voice-channel-plugin.ts`: session orchestration and websocket event router
-- `server/src/vad/simple-vad.ts`: segmentation by silence/energy
-- `server/src/asr/realtime-asr-client.ts`: ASR interface + browser provider implementation
-- `server/src/asr/aliyun-realtime-asr-client.ts`: Aliyun realtime ASR websocket client
-- `server/src/tts/aliyun-tts-client.ts`: Aliyun realtime TTS websocket client
-- `server/src/pipeline/voice-agent.ts`: token-to-tts streaming controller
-
-### 2. Client Layer
-
-Located in `client/`.
-
-Main responsibility:
-
-- Provide browser debug UI and realtime playback page
-- Capture mic audio chunks and send them to the server websocket
-- Support wake-word auto turn, manual PTT, browser TTS fallback, and developer-only debug tooling
-
-### 3. OpenClaw Plugin Layer
-
-Located in `openclaw-plugin/`.
-
-Main responsibility:
-
-- Register a `voice` channel plugin in OpenClaw
-- Connect to the audio service websocket
-- Forward outbound text from OpenClaw to audio service
-
-Key files:
-
-- `openclaw-plugin/openclaw.plugin.json`
-- `openclaw-plugin/index.ts`
-- `openclaw-plugin/src/voice-channel-plugin.ts`
-- `openclaw-plugin/src/audio-service-client.ts`
-
-### 4. Cross-layer Contract
-
-See `contracts/voice-channel-service-protocol.md` for event schema and lifecycle.
+- Production-grade cluster deployment
+- Native mobile apps
+- WebRTC media transport
+- Barge-in / interruption as a fully polished product feature
 
 ## Repository Layout
 
-- `server/`: realtime voice websocket service (Node.js)
-- `client/`: browser debug frontend
-- `openclaw-plugin/`: OpenClaw plugin scaffold
-- `contracts/`: interface contract docs
-- `docker-compose.yml`: optional one-command container startup
+```text
+openclaw-realtime-voice/
+├── server/             # Node.js audio service
+├── client/             # Browser debug UI served by the audio service
+├── openclaw-plugin/    # OpenClaw channel plugin
+├── contracts/          # Protocol and lifecycle docs
+└── docker-compose.yml  # Optional container startup
+```
 
-## Installation
+## Architecture
+
+### Components
+
+1. `server/`
+   - exposes `http://<host>:8080`
+   - exposes `ws://<host>:8080/channel/voice/ws?token=...`
+   - serves the browser debug UI
+   - receives browser audio or text
+   - runs VAD / ASR / TTS
+   - forwards user text to OpenClaw in plugin mode or gateway mode
+
+2. `openclaw-plugin/`
+   - registers the `voice` channel in OpenClaw
+   - opens a websocket to the audio service
+   - forwards OpenClaw replies back to the audio service
+
+3. `client/`
+   - browser debug UI
+   - wake word mode
+   - hold-space PTT
+   - streaming audio playback
+   - developer panel for testing text/audio/debug events
+
+### Runtime Modes
+
+This repository supports two OpenClaw integration modes.
+
+1. `plugin` mode
+   - default mode
+   - recommended mode
+   - OpenClaw loads `openclaw-plugin/`
+   - audio service waits for the plugin to connect
+   - browser input becomes OpenClaw channel traffic through the plugin
+
+2. `gateway` mode
+   - optional fallback for standalone debugging
+   - enabled when `OPENCLAW_GATEWAY_BASE_URL` is set in `server/.env`
+   - audio service calls OpenClaw HTTP directly
+   - does not require the OpenClaw plugin websocket peer
+
+For normal product usage, use `plugin` mode.
+
+## Data Flow
+
+### Normal Voice Flow
+
+1. Browser connects to the audio service websocket.
+2. Browser sends audio chunks.
+3. Audio service performs VAD and ASR.
+4. Audio service forwards the recognized user text to OpenClaw through the plugin.
+5. OpenClaw produces streaming text.
+6. Plugin forwards that text back to the audio service.
+7. Audio service segments text and sends it to realtime TTS.
+8. Browser receives streaming audio chunks and plays them.
+
+### Debug Text Flow
+
+The developer panel can also send plain text directly.
+
+That path is:
+
+`Debug Text -> Audio Service -> OpenClaw -> TTS -> Browser`
+
+This path does **not** use ASR.
+
+## Choose Your Deployment Topology
+
+There are two practical deployment topologies.
+
+### Option A: OpenClaw and Audio Service on the Same Machine
+
+Recommended for local development.
+
+Use this when:
+
+- OpenClaw and the audio service run on the same Mac/Linux machine
+- you want the least configuration friction
+- you do not need cross-device access first
+
+Use these plugin URLs:
+
+- `audioServiceBaseUrl = http://127.0.0.1:8080`
+- `audioServiceWsUrl = ws://127.0.0.1:8080/channel/voice/ws`
+
+### Option B: OpenClaw and Audio Service on Different Machines in the Same LAN
+
+Use this when:
+
+- OpenClaw runs on machine A
+- this repository's audio service runs on machine B
+- browser clients may also open the UI from machine B
+
+Use these plugin URLs:
+
+- `audioServiceBaseUrl = http://<audio-service-lan-ip>:8080`
+- `audioServiceWsUrl = ws://<audio-service-lan-ip>:8080/channel/voice/ws`
+
+Important:
+
+- `HOST` in `server/.env` must be `0.0.0.0`
+- machine A must be able to `curl http://<audio-service-lan-ip>:8080/`
+- if your Wi-Fi changes the LAN IP, you must update the OpenClaw plugin config
+
+## Quick Start
 
 ### Prerequisites
 
 - Node.js 20+
 - npm 10+
+- OpenClaw already installed and runnable
+- a valid speech API key if you use `ASR_PROVIDER=aliyun` or `TTS_PROVIDER=aliyun`
 
-### Setup
+### 1. Install the Audio Service
 
 ```bash
 cd server
@@ -105,167 +180,62 @@ npm install
 cp .env.example .env
 ```
 
-## Agent Install Prompt
+Edit `server/.env`.
 
-If you are OpenClaw (an AI personal assistant), execute the steps below directly:
+Minimum required values:
 
-```text
-You are setting up the OpenClaw Realtime Voice project from this GitHub repository.
-
-Environment requirements:
-- Node.js >= 20
-- npm >= 10
-- Linux/macOS shell
-
-Work in repository root and run:
-1) cd server
-2) npm install
-3) cp .env.example .env (create if missing)
-4) npm run check
-5) npm test
-6) npm run build
-7) npm run dev
-
-If npm install fails due to network limits, retry once with proxy:
-export https_proxy=http://127.0.0.1:7897 http_proxy=http://127.0.0.1:7897 all_proxy=socks5://127.0.0.1:7897
-
-Do not change business logic unless setup is blocked.
-At the end, print:
-- command results summary
-- whether server started successfully
-- local URL and websocket URL
-- unresolved errors and exact failing command
+```env
+HOST=0.0.0.0
+PORT=8080
+VOICE_GATEWAY_TOKEN=dev-token
+SPEECH_API_KEY=your-key
+ASR_PROVIDER=aliyun
+TTS_PROVIDER=aliyun
+WAKE_WORDS=你好老六
 ```
 
-## Configuration
+### 2. Start the Audio Service
 
-Use `server/.env` with provider-neutral keys:
-
-- `SPEECH_API_KEY`: API key for speech provider
-- `ASR_PROVIDER`: `browser` or `aliyun`
-- `ASR_URL`: realtime ASR websocket endpoint
-- `ASR_MODEL`: ASR model name
-- `ASR_LANGUAGE`: recognition language (default `zh`)
-- `ASR_SAMPLE_RATE`: ASR input sample rate (default `16000`)
-- `VOICE_IDLE_TIMEOUT_MS`: web session idle timeout in ms. Set `0` to disable auto-disconnect (recommended for persistent wake-word mode).
-- `WAKE_WORDS`: comma-separated wake words served to the web client from `server/.env` (for example `你好老六,老六`)
-- `TTS_PROVIDER`: `aliyun` or `browser`
-- `TTS_URL`: realtime TTS websocket endpoint
-- `TTS_MODEL`: realtime TTS model name
-- `TTS_VOICE`: voice profile
-- `TTS_FORMAT`: currently `pcm`
-- `TTS_SAMPLE_RATE`: output sample rate, e.g. `24000`
-- `TTS_MODE`: `server_commit` or `commit`
-- `OPENCLAW_GATEWAY_BASE_URL`: OpenClaw Gateway HTTP endpoint (optional, standalone debug only)
-- `OPENCLAW_GATEWAY_TOKEN`: optional OpenClaw Gateway bearer token
-- `OPENCLAW_AGENT_ID`: OpenClaw agent id (default `main`)
-- `OPENCLAW_REQUEST_MODEL`: request model field, keep default `openclaw`
-- `OPENCLAW_CHAT_PATH`: chat-completions path (default `/v1/chat/completions`)
-- `OPENCLAW_TIMEOUT_MS`: gateway request timeout in milliseconds
-
-Backward compatibility:
-
-- Legacy `ALIYUN_*` keys are still accepted as fallback.
-
-Text event routing (default `llmMode=plugin`):
-
-- `input.text`: user text event (consumed by the voice channel plugin to trigger OpenClaw)
-- `input.assistant.text`: assistant text already generated by OpenClaw -> realtime TTS only
-
-ASR mode examples:
-
-- Cloud ASR (Aliyun): `ASR_PROVIDER=aliyun`
-- Browser-local transcript passthrough: `ASR_PROVIDER=browser`
-
-TTS mode examples:
-
-- Cloud TTS (Aliyun audio chunks): `TTS_PROVIDER=aliyun`
-- Browser-local TTS (`speechSynthesis` in debug web): `TTS_PROVIDER=browser`
-
-## Run
-
-### Start Audio Service
+Node mode:
 
 ```bash
 cd server
 npm run dev
 ```
 
+You should see logs like:
+
+```text
+[voice-channel] server started: http://localhost:8080
+[voice-channel] lan url: http://<lan-ip>:8080
+[voice-channel] websocket: ws://localhost:8080/channel/voice/ws?token=dev-token
+```
+
 Then open:
 
 - `http://localhost:8080`
+- or the LAN URL printed by the server
 
-If `HOST=0.0.0.0`, you can also open the LAN URL printed by the server startup log on another device in the same network.
+### 3. Install the OpenClaw Plugin
 
-### WebSocket Endpoint
+Copy `openclaw-plugin/` into the plugin directory used by your OpenClaw installation.
 
-- `ws://localhost:8080/channel/voice/ws?token=<VOICE_GATEWAY_TOKEN>`
-
-## Current Debug Web UI
-
-The `client/` page is now a practical voice-debug cockpit rather than a raw protocol tester.
-
-- Wake-word mode for single-turn auto commit
-- Hold `Space` to talk (PTT)
-- Draggable main voice button while idle
-- Browser playback for streaming PCM audio
-- User prompt shown above each matching OpenClaw reply
-- Developer mode toggle in the top settings panel; the debug panel stays hidden by default
-
-Behavior notes:
-
-- In `ASR_PROVIDER=browser`, browser transcript is sent with `input.asr.local`.
-- In `ASR_PROVIDER=aliyun`, audio chunks are sent to server-side ASR.
-- Wake words are now sourced from `server/.env` via `WAKE_WORDS`; the debug panel shows them as read-only.
-- Very short filler ASR outputs such as `嗯。` are dropped before they are forwarded to OpenClaw.
-
-## Testing
+Typical example:
 
 ```bash
-cd server
-npm run check
-npm test
-npm run build
+cp -R openclaw-plugin ~/clawd/plugins/voice-channel
+cd ~/clawd/plugins/voice-channel
+npm install
 ```
 
-Manual test checklist:
+Do not skip `npm install` inside the plugin directory.
+The plugin currently declares its own dependency set.
 
-1. Connect channel from web UI.
-2. Send text and verify `assistant.text.delta` and `audio.output.delta` events.
-3. Start recording, stop/commit, verify `vad.segment` and `asr.text`.
-4. Verify the final event `audio.output.completed`.
+### 4. Configure OpenClaw
 
-Recommended UI matrix:
+Add or update the plugin entry in your OpenClaw config.
 
-1. `ASR_PROVIDER=aliyun`, `TTS_PROVIDER=aliyun`
-2. `ASR_PROVIDER=browser`, `TTS_PROVIDER=aliyun`
-3. Enable wake mode and verify auto-commit after silence
-4. Disable wake mode and verify hold-space push-to-talk
-5. Enable developer mode and confirm the debug panel becomes visible
-6. Trigger an accidental short utterance such as `嗯。` and confirm it is not forwarded to OpenClaw
-
-Wake-word auto turn (single-turn) checklist:
-
-1. Keep debug page connected and ensure `Wake Mode` is enabled.
-2. Set `WAKE_WORDS` in `server/.env` and restart the server. Default is `你好老六`.
-3. Say wake word and then your query (Chrome SpeechRecognition required).
-4. Stop speaking for ~`1200ms`; the page should auto-commit (`turn.auto_commit` log).
-5. Wait for assistant reply and playback; after completion it should resume to wake idle automatically (`wake.resumed` log).
-
-Hold-space PTT checklist:
-
-1. Disable wake mode.
-2. Focus the page and hold `Space`.
-3. Speak while holding the key.
-4. Release `Space`; the page should commit immediately.
-5. Confirm the user prompt appears above the matching assistant reply.
-
-## OpenClaw Integration Steps
-
-1. Start the audio service from `server/`.
-2. Copy `openclaw-plugin/` into OpenClaw extensions directory.
-3. Install plugin dependencies in plugin directory: `npm install`.
-4. Set required plugin config in `~/.openclaw/openclaw.json`:
+Same-machine example:
 
 ```json
 {
@@ -284,36 +254,258 @@ Hold-space PTT checklist:
 }
 ```
 
-5. Restart OpenClaw after plugin install or config change.
-6. Run `openclaw status` and verify config is valid.
-7. If you see `must have required property 'audioServiceBaseUrl'` or `audioServiceToken`, those keys are missing in `plugins.entries.voice-channel.config`.
-8. If you see `No WebSocket implementation found`, your OpenClaw runtime Node version is likely too old. Upgrade to Node 22+; if you must stay on older Node, install `ws` manually in the plugin directory as a compatibility fallback.
+LAN example:
 
-Handshake success criteria (OpenClaw logs):
+```json
+{
+  "plugins": {
+    "entries": {
+      "voice-channel": {
+        "enabled": true,
+        "config": {
+          "audioServiceBaseUrl": "http://192.168.31.188:8080",
+          "audioServiceToken": "dev-token",
+          "audioServiceWsUrl": "ws://192.168.31.188:8080/channel/voice/ws"
+        }
+      }
+    }
+  }
+}
+```
 
-- `[voice-channel][default] CONNECTING ...`
-- `[voice-channel][default] CONNECTED websocket`
-- `[voice-channel][default] STARTED sessionId=...`
+Required plugin config fields:
 
-Only `STARTED sessionId=...` means the voice channel has fully handshaked with the audio service.
+- `audioServiceBaseUrl`
+- `audioServiceToken`
 
-## Docker Compose (Optional)
+Recommended field:
+
+- `audioServiceWsUrl`
+
+If OpenClaw and the audio service are on different machines, set `audioServiceWsUrl` explicitly.
+
+### 5. Restart OpenClaw
+
+After plugin installation or config change, restart OpenClaw.
+
+Then verify OpenClaw logs.
+
+Expected handshake sequence:
+
+```text
+[voice-channel][default] CONNECTING ws://...
+[voice-channel][default] CONNECTED websocket
+[voice-channel][default] STARTED sessionId=...
+```
+
+If you do not see `STARTED sessionId=...`, the plugin is not ready.
+
+## Docker Deployment
+
+If you want to run only the audio service in Docker:
 
 ```bash
-cp server/.env.example server/.env
 docker compose up --build
 ```
 
-## Current Limitations
+This uses:
 
-- `browser` ASR depends on client-side `input.asr.local` and browser `SpeechRecognition` support.
-- Browser wake-word mode also depends on `SpeechRecognition`; Chrome is the practical target browser.
-- `openclaw-plugin/` is a scaffold and may require adaptation to your OpenClaw runtime version.
-- `aliyun` ASR depends on upstream service availability and model permissions.
-- The filler-ASR filter is heuristic-based; if you need stricter control, move it to configurable thresholds.
+- [docker-compose.yml](./docker-compose.yml)
+- [server/Dockerfile](./server/Dockerfile)
 
-## Roadmap
+Notes:
 
-- Add OpenAI provider implementations
-- Add full-duplex interruption (barge-in)
-- Add production-grade observability and retry policies
+- Docker uses `server/.env`
+- OpenClaw plugin config must still point to the **host machine IP**, not a Docker container IP
+- if Docker cannot pull `node:20-alpine`, fix Docker Desktop network/proxy first
+
+## Direct Node Deployment vs Docker
+
+### Use Node directly when
+
+- you are actively developing
+- you want faster iteration
+- you need to inspect logs and rebuild quickly
+
+### Use Docker when
+
+- you want a repeatable local runtime package
+- you want the service isolated from your host Node environment
+- you plan to keep the audio service running on a dedicated machine
+
+For development, Node mode is still the simpler path.
+
+## Important Configuration
+
+`server/.env` supports these main variables.
+
+### Core Server
+
+- `HOST`: bind address. Use `0.0.0.0` for LAN access.
+- `PORT`: default `8080`
+- `VOICE_GATEWAY_TOKEN`: websocket access token; must match plugin config
+- `VOICE_IDLE_TIMEOUT_MS`: idle timeout; set `0` to disable auto-disconnect
+- `WAKE_WORDS`: comma-separated wake words sent to the web client
+
+### ASR
+
+- `SPEECH_API_KEY`
+- `ASR_PROVIDER=browser|aliyun`
+- `ASR_URL`
+- `ASR_MODEL`
+- `ASR_LANGUAGE`
+- `ASR_SAMPLE_RATE`
+
+### TTS
+
+- `TTS_PROVIDER=browser|aliyun`
+- `TTS_URL`
+- `TTS_MODEL`
+- `TTS_VOICE`
+- `TTS_FORMAT`
+- `TTS_SAMPLE_RATE`
+- `TTS_MODE=server_commit|commit`
+
+### Optional Gateway Debug Mode
+
+Leave these empty unless you explicitly want direct HTTP integration instead of plugin mode:
+
+- `OPENCLAW_GATEWAY_BASE_URL`
+- `OPENCLAW_GATEWAY_TOKEN`
+- `OPENCLAW_AGENT_ID`
+- `OPENCLAW_REQUEST_MODEL`
+- `OPENCLAW_CHAT_PATH`
+- `OPENCLAW_TIMEOUT_MS`
+
+If `OPENCLAW_GATEWAY_BASE_URL` is empty, the server runs in `plugin` mode.
+
+## Browser Debug UI
+
+The browser UI is for integration testing, not just visual demo.
+
+Capabilities:
+
+- wake-word mode
+- hold-space push-to-talk
+- streaming audio playback
+- stop current TTS playback
+- developer panel
+- left-side conversation timeline
+- Markdown rendering for OpenClaw replies
+
+Current behavior:
+
+- wake words are read from `server/.env`
+- very short filler ASR text such as `嗯。` is filtered before sending to OpenClaw
+- TTS display text and TTS spoken text are handled separately; display keeps formatting, speech is cleaned before synthesis
+
+## How To Verify The System End To End
+
+### Basic Checklist
+
+1. Start the audio service.
+2. Open the browser UI.
+3. Confirm the page can create a websocket session.
+4. Confirm OpenClaw plugin logs show `STARTED sessionId=...`.
+5. Speak or send debug text.
+6. Confirm:
+   - `asr.text`
+   - `message.created`
+   - `assistant.text.delta`
+   - `audio.output.delta`
+   - `audio.output.completed`
+
+### If You Only Get Text But No Audio
+
+Check in this order:
+
+1. Is `TTS_PROVIDER=aliyun` or `browser` what you expect?
+2. Is the browser blocked from audio playback?
+3. Did you click stop playback in the previous turn?
+4. Did the audio service receive `audio.output.delta`?
+5. Is OpenClaw plugin actually connected, or are you only seeing browser-side events?
+
+## Troubleshooting
+
+### `OpenClaw voice-channel plugin is not connected to audio service`
+
+Meaning:
+
+- browser is connected to the audio service
+- but the OpenClaw plugin websocket peer is not connected yet
+
+Check:
+
+1. OpenClaw plugin logs
+2. plugin config `audioServiceBaseUrl` and `audioServiceWsUrl`
+3. `VOICE_GATEWAY_TOKEN` matches plugin config
+4. audio service LAN IP is still current
+
+### `Timed out waiting channel.started (10000ms)`
+
+Meaning:
+
+- plugin connected websocket
+- but did not complete the startup handshake
+
+Use the latest plugin code from this repository.
+Older plugin copies had startup ack race issues.
+
+### `connect ECONNREFUSED <ip>:8080`
+
+Meaning:
+
+- OpenClaw can reach the host/IP
+- but nothing is accepting connections on that port
+
+Check:
+
+```bash
+lsof -iTCP:8080 -sTCP:LISTEN -n -P
+curl -v http://127.0.0.1:8080/
+curl -v http://<your-lan-ip>:8080/
+```
+
+### `connection timeout after 8000ms`
+
+Meaning:
+
+- plugin tried to connect to the audio service
+- but the target IP or route is wrong, or the host is not reachable
+
+Most common cause: your Wi-Fi reassigned the audio service machine a new LAN IP.
+
+### OpenClaw config validation error: `must have required property 'audioServiceBaseUrl'`
+
+Your OpenClaw plugin config is incomplete.
+Add:
+
+- `audioServiceBaseUrl`
+- `audioServiceToken`
+
+### `No WebSocket implementation found`
+
+Your OpenClaw runtime Node version is too old.
+Use Node 22+ for OpenClaw, or install the plugin dependencies inside the plugin directory.
+
+## Installation Guidance For AI Agents
+
+If you give this repository to an AI agent, it should follow this order:
+
+1. install `server/`
+2. configure `server/.env`
+3. start the audio service
+4. install `openclaw-plugin/` into OpenClaw
+5. configure plugin URLs and token
+6. restart OpenClaw
+7. verify plugin log handshake
+8. open browser UI and test audio/text flow
+
+The most common mistake is installing only one side.
+This project requires both the audio service and the OpenClaw plugin.
+
+## Additional Docs
+
+- [Chinese README](./README.cn.md)
+- [Plugin-specific notes](./openclaw-plugin/README.md)
+- [Protocol contract](./contracts/voice-channel-service-protocol.md)

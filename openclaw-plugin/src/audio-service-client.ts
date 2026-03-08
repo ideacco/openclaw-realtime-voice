@@ -53,17 +53,20 @@ export class AudioServiceClient extends EventEmitter {
   async connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       const wsUrl = this.resolveWsUrl();
-      const ws = this.makeSocket(wsUrl, reject);
-      if (!ws) {
-        return;
-      }
       let settled = false;
+      let timeout: NodeJS.Timeout | null = setTimeout(() => {
+        fail(new Error(`connection timeout after ${CONNECT_TIMEOUT_MS}ms`));
+      }, CONNECT_TIMEOUT_MS);
 
       const fail = (reason: unknown) => {
         if (settled) {
           return;
         }
         settled = true;
+        if (timeout) {
+          clearTimeout(timeout);
+          timeout = null;
+        }
         reject(
           new Error(
             `Failed to connect audio service websocket (${wsUrl}): ${toError(reason).message}`
@@ -71,25 +74,50 @@ export class AudioServiceClient extends EventEmitter {
         );
       };
 
-      addSocketListener(ws, 'open', () => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        this.ws = ws;
-        this.bindSocket(ws);
-        this.emit('event', { type: 'connected' } as AudioServiceEvent);
-        resolve();
-      });
+      void this.makeSocket(wsUrl)
+        .then((ws) => {
+          addSocketListener(ws, 'open', () => {
+            if (settled) {
+              return;
+            }
+            settled = true;
+            if (timeout) {
+              clearTimeout(timeout);
+              timeout = null;
+            }
+            this.ws = ws;
+            this.bindSocket(ws);
+            this.emit('event', { type: 'connected' } as AudioServiceEvent);
+            resolve();
+          });
 
-      addSocketListener(ws, 'error', (errorLike) => fail(extractSocketError(errorLike)));
-      addSocketListener(ws, 'close', (closeLike) => {
-        const { code, reason } = extractCloseInfo(closeLike);
-        if (!settled) {
-          fail(new Error(`connection closed before open (code=${code}, reason=${reason})`));
-        }
-      });
+          addSocketListener(ws, 'error', (errorLike) => fail(extractSocketError(errorLike)));
+          addSocketListener(ws, 'close', (closeLike) => {
+            const { code, reason } = extractCloseInfo(closeLike);
+            if (!settled) {
+              fail(new Error(`connection closed before open (code=${code}, reason=${reason})`));
+            }
+          });
+        })
+        .catch((error) => {
+          fail(error);
+        });
     });
+  }
+
+  private async makeSocket(wsUrl: string): Promise<WebSocketLike> {
+    const ctor = await getRuntimeWebSocketCtor();
+    if (!ctor) {
+      throw new Error(
+        'No WebSocket implementation found. Install "ws" in the plugin directory or use a runtime with global WebSocket.'
+      );
+    }
+
+    const ws = new ctor(wsUrl);
+    if ('binaryType' in ws) {
+      ws.binaryType = 'arraybuffer';
+    }
+    return ws as WebSocketLike;
   }
 
   startChannel(params: {
@@ -227,24 +255,6 @@ export class AudioServiceClient extends EventEmitter {
     });
   }
 
-  private makeSocket(wsUrl: string, reject: (reason?: unknown) => void): WebSocketLike | null {
-    const ctor = getRuntimeWebSocketCtor();
-    if (ctor) {
-      const ws = new ctor(wsUrl);
-      if ('binaryType' in ws) {
-        ws.binaryType = 'arraybuffer';
-      }
-      return ws;
-    }
-
-    reject(
-      new Error(
-        'No WebSocket implementation found. Use Node.js 22+ (global WebSocket) or install "ws" in plugin directory.'
-      )
-    );
-    return null;
-  }
-
   private async handleIncomingMessage(messageLike: unknown): Promise<void> {
     const raw = await normalizeMessagePayload(messageLike);
     if (!raw) {
@@ -286,13 +296,36 @@ function toError(error: unknown): Error {
   if (error instanceof Error) {
     return error;
   }
+  if (error === undefined || error === null || error === '') {
+    return new Error('Unknown websocket error');
+  }
   return new Error(String(error));
 }
 
-function getRuntimeWebSocketCtor(): WebSocketCtor | null {
-  const ctor = (globalThis as any).WebSocket;
-  if (typeof ctor === 'function') {
-    return ctor as WebSocketCtor;
+const CONNECT_TIMEOUT_MS = 8_000;
+let webSocketCtorPromise: Promise<WebSocketCtor | null> | null = null;
+
+async function getRuntimeWebSocketCtor(): Promise<WebSocketCtor | null> {
+  if (!webSocketCtorPromise) {
+    webSocketCtorPromise = resolveRuntimeWebSocketCtor();
+  }
+  return webSocketCtorPromise;
+}
+
+async function resolveRuntimeWebSocketCtor(): Promise<WebSocketCtor | null> {
+  try {
+    const mod = (await import('ws')) as Record<string, unknown>;
+    const ctor = mod.WebSocket ?? mod.default;
+    if (typeof ctor === 'function') {
+      return ctor as WebSocketCtor;
+    }
+  } catch {
+    // Fall back to runtime-provided WebSocket.
+  }
+
+  const globalCtor = (globalThis as any).WebSocket;
+  if (typeof globalCtor === 'function') {
+    return globalCtor as WebSocketCtor;
   }
   return null;
 }

@@ -3,5 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "OpenClaw channel plugin for external realtime voice service"
+  "description": "OpenClaw channel plugin for external realtime voice service",
+  "dependencies": {
+    "ws": "^8.18.3"
+  }
 }

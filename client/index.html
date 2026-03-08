@@ -81,6 +81,7 @@
 
     <main class="app-shell">
       <header class="topbar">
+        <p id="wakeGreeting" class="wake-greeting" hidden>嗨，我是「你好老六」，想要做点什么？</p>
         <div class="topbar-meta">
           <details class="control-drawer">
             <summary>
@@ -107,17 +108,6 @@
 
       <section class="stage-layout">
         <section class="stream-column">
-          <div class="signal-strip">
-            <section class="signal-row transcript-live">
-              <p class="transcript-label">实时识别</p>
-              <p id="liveTranscript" class="transcript">（连接后自动进入唤醒待命）</p>
-            </section>
-          </div>
-
-          <div class="assistant-meta">
-            <code id="channelSessionId">-</code>
-          </div>
-
           <section class="assistant-stream" id="assistantStream" aria-live="polite"></section>
         </section>
 
@@ -140,6 +130,8 @@
               </span>
             </button>
 
+            <button id="stopBtn" class="dock-stop-btn" type="button" hidden>停止播放</button>
+
             <div class="dock-transcript">
               <p id="finalTranscript" class="transcript muted">服务端 ASR 结果：-</p>
             </div>
@@ -150,6 +142,10 @@
       <details class="debug-panel" id="debugPanel" hidden>
         <summary>调试面板</summary>
         <div class="debug-grid">
+          <label class="full">
+            实时识别
+            <p id="liveTranscript" class="debug-transcript">（连接后自动进入唤醒待命）</p>
+          </label>
           <label>
             唤醒词（服务端 .env）
             <input id="wakeWordsInput" value="你好老六" readonly />

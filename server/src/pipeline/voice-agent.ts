@@ -14,6 +14,8 @@ export class VoiceAgent extends EventEmitter {
 
   private lastConfigKey = '';
 
+  private ttsEnabled = true;
+
   constructor(
     private readonly ttsClient: TtsClient,
     private readonly segmenter: SentenceSegmenter,
@@ -26,6 +28,7 @@ export class VoiceAgent extends EventEmitter {
   async startTurn(config: TtsSessionConfig): Promise<void> {
     this.segmenter.reset();
     this.sendChain = Promise.resolve();
+    this.ttsEnabled = true;
 
     const currentConfigKey = JSON.stringify(config);
     if (currentConfigKey !== this.lastConfigKey) {
@@ -38,6 +41,9 @@ export class VoiceAgent extends EventEmitter {
 
   onToken(token: string): void {
     this.callbacks.onTextDelta(token);
+    if (!this.ttsEnabled) {
+      return;
+    }
     const sentences = this.segmenter.pushToken(token);
     for (const sentence of sentences) {
       this.enqueueSend(sentence);
@@ -45,6 +51,11 @@ export class VoiceAgent extends EventEmitter {
   }
 
   async endTurn(): Promise<void> {
+    if (!this.ttsEnabled) {
+      this.segmenter.reset();
+      this.callbacks.onAudioCompleted();
+      return;
+    }
     const tail = this.segmenter.flush();
     for (const sentence of tail) {
       this.enqueueSend(sentence);
@@ -53,7 +64,18 @@ export class VoiceAgent extends EventEmitter {
     this.ttsClient.commitInput();
   }
 
+  stopTts(): void {
+    if (!this.ttsEnabled) {
+      return;
+    }
+    this.ttsEnabled = false;
+    this.segmenter.reset();
+    this.sendChain = Promise.resolve();
+    this.ttsClient.close();
+  }
+
   close(): void {
+    this.ttsEnabled = false;
     this.ttsClient.close();
   }
 
@@ -73,17 +95,18 @@ export class VoiceAgent extends EventEmitter {
 
   private enqueueSend(sentence: string): void {
     this.sendChain = this.sendChain.then(async () => {
-      if (!sentence.trim()) {
+      const sanitized = sanitizeTextForTts(sentence);
+      if (!sanitized) {
         return;
       }
       try {
-        this.ttsClient.sendText(sentence);
+        this.ttsClient.sendText(sanitized);
       } catch (error) {
         if (!isDisconnectedError(error)) {
           throw error;
         }
         await this.ttsClient.connect();
-        this.ttsClient.sendText(sentence);
+        this.ttsClient.sendText(sanitized);
       }
     });
 
@@ -102,4 +125,23 @@ function isDisconnectedError(error: unknown): boolean {
     return false;
   }
   return error.message.toLowerCase().includes('not connected');
+}
+
+function sanitizeTextForTts(text: string): string {
+  const cleaned = text
+    .replace(/[`#*_~|><]/g, ' ')
+    .replace(/(^|[\s([{'"“”‘’])[-_]{1,6}(?=$|[\s)\]}'"“”‘’])/g, '$1 ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!cleaned) {
+    return '';
+  }
+
+  const semantic = cleaned.replace(/[.,!?;:，。！？；：、…\s\-_/\\()[\]{}'"“”‘’]/g, '');
+  if (!semantic) {
+    return '';
+  }
+
+  return cleaned;
 }

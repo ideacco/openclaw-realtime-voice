@@ -59,6 +59,8 @@ export class AliyunTtsClient extends EventEmitter implements TtsClient {
 
   private connected = false;
 
+  private intentionalClose = false;
+
   constructor(private readonly options: AliyunTtsClientOptions) {
     super();
     this.reconnectOnce = options.reconnectOnce ?? true;
@@ -119,6 +121,7 @@ export class AliyunTtsClient extends EventEmitter implements TtsClient {
 
   close(): void {
     if (this.ws) {
+      this.intentionalClose = true;
       this.ws.close();
       this.ws = null;
     }
@@ -179,9 +182,10 @@ export class AliyunTtsClient extends EventEmitter implements TtsClient {
     });
 
     ws.on('close', () => {
-      const shouldReconnect = this.reconnectOnce;
+      const shouldReconnect = !this.intentionalClose && this.reconnectOnce;
       this.connected = false;
       this.ws = null;
+      this.intentionalClose = false;
       this.emit('close');
       if (shouldReconnect) {
         this.reconnectOnce = false;

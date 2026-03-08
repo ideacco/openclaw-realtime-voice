@@ -1,0 +1,194 @@
+.topbar {
+  z-index: 20;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-bottom: 26px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  backdrop-filter: none;
+  box-shadow: none;
+  position: sticky;
+  top: 18px;
+}
+
+.wake-greeting {
+  margin: 0;
+  color: rgba(244, 248, 255, 0.96);
+  font-size: clamp(1rem, 0.9rem + 0.24vw, 1.16rem);
+  font-weight: 560;
+  letter-spacing: 0.01em;
+  text-shadow: 0 1px 10px rgba(16, 28, 54, 0.18);
+}
+
+.wake-greeting[hidden] {
+  display: none;
+}
+
+.topbar-meta {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  margin-left: auto;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(161, 174, 211, 0.8);
+  transition: background-color 180ms ease, box-shadow 180ms ease;
+}
+
+body[data-voice-state="wake_idle"] .status-dot,
+body[data-voice-state="manual_ready"] .status-dot {
+  background: var(--ok);
+  box-shadow: 0 0 14px rgba(89, 255, 197, 0.94);
+}
+
+body[data-voice-state="capturing_turn"] .status-dot {
+  background: var(--cyan);
+  box-shadow: 0 0 18px rgba(120, 244, 255, 0.94);
+}
+
+body[data-voice-state="waiting_assistant"] .status-dot,
+body[data-voice-state="turn_committing"] .status-dot {
+  background: var(--warn);
+  box-shadow: 0 0 14px rgba(255, 222, 149, 0.92);
+}
+
+.control-drawer {
+  position: relative;
+  z-index: 8;
+  width: auto;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  backdrop-filter: none;
+  overflow: visible;
+  box-shadow: none;
+}
+
+.control-drawer summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 2px 0;
+  font-weight: 640;
+  color: rgba(245, 250, 255, 0.98);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  white-space: nowrap;
+  text-shadow: 0 1px 6px rgba(17, 33, 62, 0.12);
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+
+.control-drawer summary::-webkit-details-marker {
+  display: none;
+}
+
+.control-drawer summary::after {
+  content: "+";
+  color: rgba(245, 250, 255, 0.82);
+  font-size: 1.2rem;
+  transition: transform 180ms ease;
+}
+
+.control-drawer[open] summary::after {
+  transform: rotate(45deg);
+}
+
+.drawer-grid {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 10px);
+  z-index: 12;
+  width: min(420px, calc(100vw - 40px));
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 26px;
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  background:
+    linear-gradient(180deg, rgba(252, 254, 255, 0.26), rgba(214, 230, 255, 0.1)),
+    linear-gradient(145deg, rgba(203, 231, 255, 0.16), rgba(147, 176, 255, 0.1));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.52),
+    0 24px 52px rgba(24, 51, 96, 0.18);
+  backdrop-filter: blur(30px) saturate(155%);
+}
+
+.token-wrap {
+  display: grid;
+  gap: 8px;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+.token-wrap input,
+.debug-grid input,
+.debug-grid textarea {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 16px;
+  padding: 12px 14px;
+  background: rgba(20, 32, 56, 0.28);
+  color: var(--text);
+  font: inherit;
+  outline: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+.token-wrap input:focus,
+.debug-grid input:focus,
+.debug-grid textarea:focus {
+  border-color: rgba(142, 177, 255, 0.34);
+  box-shadow: 0 0 0 3px rgba(84, 121, 255, 0.12);
+}
+
+.drawer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+button {
+  appearance: none;
+  border: 1px solid rgba(172, 194, 255, 0.18);
+  border-radius: 999px;
+  padding: 11px 18px;
+  background: linear-gradient(180deg, rgba(23, 32, 72, 0.62), rgba(16, 23, 48, 0.74));
+  color: var(--text);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 10px 24px rgba(2, 7, 24, 0.26);
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+  transition: transform 180ms ease, border-color 180ms ease, background 180ms ease, box-shadow 180ms ease, opacity 180ms ease;
+}
+
+button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: var(--line-strong);
+  background: linear-gradient(180deg, rgba(40, 58, 118, 0.74), rgba(23, 34, 73, 0.84));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 16px 30px rgba(9, 19, 58, 0.38);
+}
+
+button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+  transform: none;
+}

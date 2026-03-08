@@ -1,0 +1,80 @@
+.debug-panel {
+  margin-top: 22px;
+  padding: 14px 16px;
+}
+
+.debug-panel summary {
+  cursor: pointer;
+  list-style: none;
+  color: var(--muted);
+  font-weight: 620;
+}
+
+.debug-panel summary::-webkit-details-marker {
+  display: none;
+}
+
+.debug-grid {
+  margin-top: 14px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.debug-grid .full {
+  grid-column: 1 / -1;
+}
+
+.debug-grid label {
+  display: grid;
+  gap: 8px;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+.debug-grid textarea {
+  resize: vertical;
+  min-height: 96px;
+}
+
+.debug-transcript {
+  margin: 0;
+  min-height: 52px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(18, 28, 48, 0.22);
+  color: rgba(241, 246, 255, 0.9);
+  line-height: 1.58;
+  word-break: break-word;
+}
+
+.debug-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+#channelLastError {
+  color: var(--danger);
+  font-size: 0.9rem;
+}
+
+#lastServerEvent,
+#log {
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  border-radius: 18px;
+  border: 1px solid rgba(163, 183, 255, 0.12);
+  background: rgba(5, 10, 24, 0.72);
+  padding: 14px;
+  color: rgba(202, 217, 255, 0.9);
+  white-space: pre-wrap;
+  font-size: 0.82rem;
+  line-height: 1.56;
+}
+
+#log {
+  max-height: 320px;
+}

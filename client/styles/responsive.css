@@ -1,0 +1,104 @@
+@media (max-width: 980px) {
+  .app-shell {
+    width: calc(100% - 16px);
+    margin: 8px auto 20px;
+    padding: 18px;
+  }
+
+  .topbar {
+    flex-wrap: wrap;
+    align-items: center;
+    top: 10px;
+  }
+
+  .topbar-meta {
+    width: 100%;
+    justify-content: flex-start;
+    margin-left: 0;
+  }
+
+  .control-drawer {
+    margin-left: auto;
+  }
+
+  .voice-dock {
+    position: static;
+    width: 100%;
+    margin: 20px 0 0;
+    transform: none;
+  }
+
+  .floating-card {
+    min-height: auto;
+  }
+
+  .stream-column {
+    padding-top: 0;
+    max-width: 100%;
+  }
+
+  .drawer-grid {
+    width: min(420px, calc(100vw - 56px));
+  }
+
+  .debug-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .topbar {
+    gap: 12px;
+    top: 8px;
+  }
+
+  .topbar-meta {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .control-drawer {
+    width: 100%;
+  }
+
+  .control-drawer summary {
+    width: 100%;
+  }
+
+  .drawer-grid {
+    left: 0;
+    right: auto;
+    width: calc(100vw - 44px);
+  }
+
+  .drawer-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .floating-card {
+    min-height: auto;
+  }
+
+  .voice-orb {
+    min-height: 190px;
+  }
+
+  .voice-pill-shell {
+    min-height: 80px;
+    padding: 0 18px;
+    gap: 10px;
+  }
+
+  .voice-pill-text {
+    font-size: 1.34rem;
+  }
+
+  .assistant-entry {
+    padding-left: 20px;
+  }
+
+  .assistant-entry-body {
+    font-size: 0.94rem;
+  }
+}

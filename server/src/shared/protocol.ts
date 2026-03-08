@@ -59,6 +59,10 @@ export interface InputAssistantTextEvent {
   sessionId?: string;
 }
 
+export interface TtsStopEvent {
+  type: 'tts.stop';
+}
+
 export interface ChannelEndEvent {
   type: 'channel.end';
 }
@@ -73,6 +77,7 @@ export type ClientEvent =
   | InputAsrLocalEvent
   | InputTextEvent
   | InputAssistantTextEvent
+  | TtsStopEvent
   | ChannelEndEvent;
 
 export interface AgentTextDeltaEvent {
@@ -276,6 +281,8 @@ export function parseClientEvent(raw: string): ClientEvent {
         sessionId: event.sessionId as string | undefined
       };
     }
+    case 'tts.stop':
+      return { type: 'tts.stop' };
     case 'channel.end':
       return { type: 'channel.end' };
     default:

@@ -1,0 +1,178 @@
+.markdown-body > :first-child {
+  margin-top: 0;
+}
+
+.markdown-body > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body p,
+.markdown-body ul,
+.markdown-body ol,
+.markdown-body pre,
+.markdown-body blockquote {
+  margin: 0 0 18px;
+}
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+  margin: 0 0 14px;
+  color: rgba(248, 251, 255, 0.98);
+  line-height: 1.28;
+  text-wrap: balance;
+}
+
+.markdown-body h1 {
+  font-size: clamp(1.36rem, 1.12rem + 0.55vw, 1.68rem);
+}
+
+.markdown-body h2 {
+  font-size: clamp(1.24rem, 1.04rem + 0.42vw, 1.46rem);
+}
+
+.markdown-body h3 {
+  font-size: clamp(1.14rem, 0.98rem + 0.32vw, 1.3rem);
+}
+
+.markdown-body ul,
+.markdown-body ol {
+  padding-left: 1.3em;
+}
+
+.markdown-body ul ul,
+.markdown-body ul ol,
+.markdown-body ol ul,
+.markdown-body ol ol {
+  margin-top: 10px;
+  margin-bottom: 0;
+}
+
+.markdown-body li + li {
+  margin-top: 8px;
+}
+
+.markdown-body li > span {
+  display: inline;
+}
+
+.markdown-body blockquote {
+  padding: 8px 0 8px 14px;
+  border-left: 2px solid rgba(154, 188, 255, 0.42);
+  color: rgba(225, 236, 255, 0.88);
+}
+
+.markdown-body code {
+  padding: 0.12em 0.4em;
+  border-radius: 8px;
+  background: rgba(18, 30, 58, 0.28);
+  font-family: "SFMono-Regular", "JetBrains Mono", "Menlo", monospace;
+  font-size: 0.9em;
+  color: rgba(236, 245, 255, 0.96);
+}
+
+.markdown-body .md-code-block {
+  position: relative;
+  overflow-x: auto;
+  padding: 16px 18px 18px;
+  border-radius: 18px;
+  border: 1px solid rgba(166, 191, 255, 0.14);
+  background: rgba(12, 20, 40, 0.34);
+}
+
+.markdown-body .md-code-block code {
+  display: block;
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
+  white-space: pre;
+  line-height: 1.6;
+}
+
+.markdown-body .md-code-lang {
+  display: inline-block;
+  margin-bottom: 10px;
+  color: rgba(187, 205, 240, 0.72);
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.markdown-body .md-table-wrap {
+  margin: 0 0 18px;
+  overflow-x: auto;
+  border-radius: 18px;
+  border: 1px solid rgba(171, 197, 255, 0.16);
+  background: rgba(10, 17, 34, 0.2);
+}
+
+.markdown-body .md-table {
+  width: 100%;
+  min-width: 460px;
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+
+.markdown-body .md-table th,
+.markdown-body .md-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(171, 197, 255, 0.12);
+  vertical-align: top;
+}
+
+.markdown-body .md-table th {
+  color: rgba(247, 251, 255, 0.95);
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.markdown-body .md-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.markdown-body .md-task-list {
+  list-style: none;
+  padding-left: 0;
+}
+
+.markdown-body .md-task-list > li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.markdown-body .md-task-checkbox {
+  width: 0.95rem;
+  height: 0.95rem;
+  margin-top: 0.26rem;
+  border-radius: 0.28rem;
+  flex: 0 0 auto;
+  border: 1px solid rgba(194, 213, 255, 0.42);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.markdown-body .md-task-checkbox.is-checked {
+  background:
+    linear-gradient(180deg, rgba(173, 218, 255, 0.82), rgba(114, 164, 255, 0.76));
+  border-color: rgba(200, 232, 255, 0.56);
+  box-shadow: inset 0 0 0 2px rgba(13, 24, 46, 0.36);
+}
+
+.markdown-body .md-task-item > span:last-of-type {
+  flex: 1 1 auto;
+}
+
+.markdown-body a {
+  color: rgba(162, 208, 255, 0.98);
+  text-decoration: underline;
+  text-decoration-color: rgba(162, 208, 255, 0.46);
+  text-underline-offset: 0.16em;
+}
+
+.markdown-body strong {
+  color: rgba(249, 251, 255, 0.98);
+  font-weight: 720;
+}

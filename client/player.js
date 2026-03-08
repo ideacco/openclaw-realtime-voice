@@ -3,6 +3,7 @@ export class PcmAudioPlayer {
     this.sampleRate = sampleRate;
     this.ctx = null;
     this.nextStartAt = 0;
+    this.sources = new Set();
   }
 
   async init() {
@@ -32,6 +33,15 @@ export class PcmAudioPlayer {
     const source = this.ctx.createBufferSource();
     source.buffer = buffer;
     source.connect(this.ctx.destination);
+    this.sources.add(source);
+    source.onended = () => {
+      this.sources.delete(source);
+      try {
+        source.disconnect();
+      } catch {
+        // noop
+      }
+    };
 
     const now = this.ctx.currentTime;
     const startAt = Math.max(now + 0.005, this.nextStartAt);
@@ -39,7 +49,28 @@ export class PcmAudioPlayer {
     this.nextStartAt = startAt + buffer.duration;
   }
 
+  async stop() {
+    if (!this.ctx) {
+      return;
+    }
+    for (const source of this.sources) {
+      try {
+        source.stop();
+      } catch {
+        // noop
+      }
+      try {
+        source.disconnect();
+      } catch {
+        // noop
+      }
+    }
+    this.sources.clear();
+    this.nextStartAt = this.ctx.currentTime;
+  }
+
   async close() {
+    await this.stop();
     if (!this.ctx) {
       return;
     }

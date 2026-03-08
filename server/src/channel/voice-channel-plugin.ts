@@ -55,6 +55,7 @@ interface SessionState {
   pendingLocalAsrText: string;
   lastLocalAsrFinalText: string;
   pendingAsrText: string;
+  ttsStopped: boolean;
 }
 
 export class VoiceChannelPlugin {
@@ -161,6 +162,9 @@ export class VoiceChannelPlugin {
       case 'agent.input.text':
         this.onAssistantTextInput(ws, event.text);
         break;
+      case 'tts.stop':
+        this.onTtsStop(ws);
+        break;
       case 'channel.end':
       case 'session.end':
         this.onChannelEnd(ws);
@@ -228,7 +232,8 @@ export class VoiceChannelPlugin {
       queue: Promise.resolve(),
       pendingLocalAsrText: '',
       lastLocalAsrFinalText: '',
-      pendingAsrText: ''
+      pendingAsrText: '',
+      ttsStopped: false
     };
 
     state.idleTimer = state.clientRole === 'plugin' ? null : this.makeIdleTimer(ws);
@@ -419,6 +424,17 @@ export class VoiceChannelPlugin {
     });
   }
 
+  private onTtsStop(ws: WebSocket): void {
+    const state = this.sessions.get(ws);
+    if (!state) {
+      this.sendError(ws, 'BAD_REQUEST', 'Session not started', false);
+      return;
+    }
+    state.ttsStopped = true;
+    state.agent.stopTts();
+    this.touch(ws);
+  }
+
   private onChannelEnd(ws: WebSocket): void {
     const state = this.sessions.get(ws);
     if (!state) {
@@ -484,6 +500,7 @@ export class VoiceChannelPlugin {
     }
 
     this.touch(state.ws);
+    state.ttsStopped = false;
 
     const createdEvent: ServerEvent = {
       type: 'message.created',
@@ -529,7 +546,18 @@ export class VoiceChannelPlugin {
       sessionId: state.sessionId,
       text
     })) {
+      if (state.ttsStopped) {
+        this.send(state.ws, { type: 'assistant.text.delta', sessionId: state.sessionId, text: token });
+        this.touch(state.ws);
+        continue;
+      }
       state.agent.onToken(token);
+    }
+
+    if (state.ttsStopped) {
+      this.send(state.ws, { type: 'audio.output.completed', sessionId: state.sessionId });
+      this.touch(state.ws);
+      return;
     }
 
     await state.agent.endTurn();
@@ -541,6 +569,15 @@ export class VoiceChannelPlugin {
     }
 
     this.touch(state.ws);
+
+    if (state.ttsStopped) {
+      for (const token of [...text]) {
+        this.send(state.ws, { type: 'assistant.text.delta', sessionId: state.sessionId, text: token });
+      }
+      this.send(state.ws, { type: 'audio.output.completed', sessionId: state.sessionId });
+      return;
+    }
+
     await state.agent.startTurn(state.voiceConfig);
 
     for (const token of [...text]) {

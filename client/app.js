@@ -17,11 +17,11 @@ const debugPanelEl = document.getElementById('debugPanel');
 const tokenInput = document.getElementById('token');
 const inputText = document.getElementById('inputText');
 const statusEl = document.getElementById('status');
+const wakeGreetingEl = document.getElementById('wakeGreeting');
 const logEl = document.getElementById('log');
 const liveTranscriptEl = document.getElementById('liveTranscript');
 const finalTranscriptEl = document.getElementById('finalTranscript');
 const channelLinkStatusEl = document.getElementById('channelLinkStatus');
-const channelSessionIdEl = document.getElementById('channelSessionId');
 const channelLastErrorEl = document.getElementById('channelLastError');
 const assistantStreamEl = document.getElementById('assistantStream');
 const lastServerEventEl = document.getElementById('lastServerEvent');
@@ -46,6 +46,7 @@ const WAKE_MIN_CAPTURE_MS = 2200;
 const WAKE_RETRIGGER_GUARD_MS = 2500;
 const ASSISTANT_SETTLE_MS = 500;
 const ASSISTANT_FALLBACK_TIMEOUT_MS = 15_000;
+const ASSISTANT_SCROLL_PADDING_PX = 160;
 
 const STATE = {
   DISCONNECTED: 'disconnected',
@@ -119,6 +120,9 @@ let assistantLastActivityAt = 0;
 let assistantSettleTimer = null;
 let assistantFallbackTimer = null;
 let assistantReplyStarted = false;
+let assistantPlaybackActive = false;
+let assistantPlaybackStopped = false;
+let assistantAutoScrollFrame = 0;
 let spacePressed = false;
 let spaceTurnActive = false;
 
@@ -160,7 +164,6 @@ connectBtn.addEventListener('click', () => {
   ws.addEventListener('open', () => {
     status('已连接');
     setChannelLinkStatus('WebSocket 已连接，等待 channel.started');
-    setChannelSessionId('-');
     setChannelLastError('-');
     assistantStream = '';
     setAssistantStream('-');
@@ -184,7 +187,6 @@ connectBtn.addEventListener('click', () => {
   ws.addEventListener('close', async () => {
     status('点击连接');
     setChannelLinkStatus('连接已断开');
-    setChannelSessionId('-');
     sessionId = null;
     llmEnabled = false;
     llmMode = 'unknown';
@@ -218,6 +220,25 @@ disconnectBtn.addEventListener('click', async () => {
     ws.close();
   }
 });
+
+assistantStreamEl.addEventListener('click', (event) => {
+  const stopButton = event.target.closest('[data-stop-playback]');
+  if (!stopButton) {
+    return;
+  }
+  event.preventDefault();
+  void stopAssistantPlayback('manual_stop');
+});
+
+if (stopBtn) {
+  stopBtn.addEventListener('click', (event) => {
+    event.preventDefault();
+    if (stopBtn.disabled) {
+      return;
+    }
+    void stopAssistantPlayback('manual_stop');
+  });
+}
 
 recordBtn.addEventListener('click', async () => {
   if (!isOrbInteractive()) {
@@ -379,7 +400,6 @@ function onServerEvent(event) {
       setChannelLinkStatus(
         `频道会话已启动 (ASR=${asrProvider}, TTS=${ttsProvider}, OpenClaw=${llmEnabled ? llmMode : 'disabled'})`
       );
-      setChannelSessionId(event.sessionId);
 
       assistantStream = '';
       pendingUserPrompt = '';
@@ -440,9 +460,12 @@ function onServerEvent(event) {
       setChannelLinkStatus(
         ttsProvider === 'browser' ? 'OpenClaw 正在返回文本，本地 TTS 播放中' : 'OpenClaw 正在返回文本，TTS 正在合成'
       );
-      if (ttsProvider === 'browser') {
+      if (ttsProvider === 'browser' && !assistantPlaybackStopped) {
+        assistantPlaybackActive = true;
         enqueueBrowserTts(event.text);
       }
+      renderAssistantReplies();
+      refreshControls();
       log(`assistant.text.delta: ${event.text}`);
       break;
 
@@ -453,7 +476,13 @@ function onServerEvent(event) {
       if (ttsProvider === 'browser') {
         break;
       }
+      if (assistantPlaybackStopped) {
+        break;
+      }
+      assistantPlaybackActive = true;
       setChannelLinkStatus('正在接收音频流');
+      renderAssistantReplies();
+      refreshControls();
       void player.enqueueBase64(event.data);
       break;
 
@@ -490,7 +519,6 @@ function onServerEvent(event) {
       log(`channel.ended ${event.sessionId}`);
       sessionId = null;
       setChannelLinkStatus('会话已结束');
-      setChannelSessionId('-');
       setVoiceState(STATE.DISCONNECTED, '会话已结束');
       refreshControls();
       break;
@@ -516,6 +544,8 @@ async function beginTurn(source, wakeKeyword = '') {
 
   clearAssistantTimers();
   resetTurnBuffers();
+  assistantPlaybackStopped = false;
+  assistantPlaybackActive = false;
   turnSource = source;
   turnStartedAt = Date.now();
   wakeCapturePrimingUntil = source === 'wake' ? Date.now() + WAKE_CAPTURE_PRIMING_MS : 0;
@@ -739,6 +769,15 @@ function armAssistantFallback() {
 }
 
 function clearAssistantTimers() {
+  clearAssistantTimeouts();
+  assistantPendingComplete = false;
+  assistantLastActivityAt = 0;
+  assistantReplyStarted = false;
+  assistantPlaybackActive = false;
+  assistantPlaybackStopped = false;
+}
+
+function clearAssistantTimeouts() {
   if (assistantSettleTimer) {
     clearTimeout(assistantSettleTimer);
     assistantSettleTimer = null;
@@ -747,9 +786,6 @@ function clearAssistantTimers() {
     clearTimeout(assistantFallbackTimer);
     assistantFallbackTimer = null;
   }
-  assistantPendingComplete = false;
-  assistantLastActivityAt = 0;
-  assistantReplyStarted = false;
 }
 
 function scheduleAssistantSettleCheck() {
@@ -785,6 +821,7 @@ function scheduleAssistantSettleCheck() {
 
 function suppressWakeForAssistant() {
   wakeLockedByAssistant = true;
+  stopWakeRecognition();
 }
 
 function resumeWakeAfterTurn(reason) {
@@ -799,11 +836,14 @@ function resumeWakeAfterTurn(reason) {
   if (wakeModeEnabled) {
     setVoiceState(STATE.WAKE_IDLE, '待命：等待唤醒词');
     setLiveTranscript('（待命中，等待唤醒词）');
-    restartWakeRecognition();
+    ensureWakeRecognition();
     log(`wake.resumed reason=${reason}`);
   } else {
     setVoiceState(STATE.MANUAL_READY, '唤醒模式关闭，可手动录音');
     setLiveTranscript('（手动模式，可点击手动开始）');
+    if (asrProvider === 'browser') {
+      ensureWakeRecognition();
+    }
   }
 
   refreshControls();
@@ -836,6 +876,32 @@ function restartWakeRecognition() {
       speechRecognitionRestarting = false;
     }
   }, 120);
+}
+
+async function stopAssistantPlayback(reason = 'manual_stop') {
+  if (!assistantReplyStarted) {
+    return;
+  }
+
+  if (isConnected()) {
+    send({ type: 'tts.stop' });
+  }
+
+  assistantPlaybackStopped = true;
+  assistantPlaybackActive = false;
+  assistantPendingComplete = false;
+  clearAssistantTimeouts();
+  stopBrowserTts();
+  await player.stop();
+  setChannelLinkStatus('已停止当前语音播报');
+  renderAssistantReplies();
+  refreshControls();
+
+  if (asrProvider === 'browser') {
+    ensureWakeRecognition();
+  }
+
+  log(`assistant.playback_stopped reason=${reason}`);
 }
 
 function canDetectWakeWord() {
@@ -979,10 +1045,18 @@ function enqueueBrowserTts(delta) {
   if (ttsProvider !== 'browser') {
     return;
   }
+  if (assistantPlaybackStopped) {
+    return;
+  }
 
-  browserTtsBuffer += delta;
+  const sanitized = sanitizeTextForTts(delta);
+  if (!sanitized) {
+    return;
+  }
 
-  const tail = delta.slice(-1);
+  browserTtsBuffer += sanitized;
+
+  const tail = sanitized.slice(-1);
   if (/[\n。！？!?；;，,.]/.test(tail) || browserTtsBuffer.length >= 42) {
     flushBrowserTts();
     return;
@@ -1008,6 +1082,11 @@ function flushBrowserTts() {
     return;
   }
 
+  if (assistantPlaybackStopped) {
+    browserTtsBuffer = '';
+    return;
+  }
+
   const text = browserTtsBuffer.trim();
   if (!text) {
     browserTtsBuffer = '';
@@ -1019,6 +1098,15 @@ function flushBrowserTts() {
 }
 
 function speakBrowserText(text) {
+  if (assistantPlaybackStopped) {
+    return;
+  }
+
+  const sanitized = sanitizeTextForTts(text);
+  if (!sanitized) {
+    return;
+  }
+
   const synth = window.speechSynthesis;
   if (!synth || typeof window.SpeechSynthesisUtterance !== 'function') {
     if (!browserTtsUnsupportedLogged) {
@@ -1028,12 +1116,13 @@ function speakBrowserText(text) {
     return;
   }
 
-  const utterance = new SpeechSynthesisUtterance(text);
+  const utterance = new SpeechSynthesisUtterance(sanitized);
   utterance.lang = 'zh-CN';
   utterance.rate = 1;
   utterance.pitch = 1;
 
   browserTtsSpeakingCount += 1;
+  assistantPlaybackActive = true;
 
   utterance.onstart = () => {
     setChannelLinkStatus('本地 TTS 播放中');
@@ -1041,11 +1130,13 @@ function speakBrowserText(text) {
 
   utterance.onend = () => {
     browserTtsSpeakingCount = Math.max(0, browserTtsSpeakingCount - 1);
+    assistantPlaybackActive = browserTtsSpeakingCount > 0 || Boolean(browserTtsBuffer.trim());
     scheduleAssistantSettleCheck();
   };
 
   utterance.onerror = () => {
     browserTtsSpeakingCount = Math.max(0, browserTtsSpeakingCount - 1);
+    assistantPlaybackActive = browserTtsSpeakingCount > 0 || Boolean(browserTtsBuffer.trim());
     scheduleAssistantSettleCheck();
   };
 
@@ -1060,11 +1151,31 @@ function stopBrowserTts() {
 
   browserTtsBuffer = '';
   browserTtsSpeakingCount = 0;
+  assistantPlaybackActive = false;
 
   const synth = window.speechSynthesis;
   if (synth) {
     synth.cancel();
   }
+}
+
+function sanitizeTextForTts(text) {
+  const cleaned = String(text ?? '')
+    .replace(/[`#*_~|><]/g, ' ')
+    .replace(/(^|[\s([{'"“”‘’])[-_]{1,6}(?=$|[\s)\]}'"“”‘’])/g, '$1 ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!cleaned) {
+    return '';
+  }
+
+  const semantic = cleaned.replace(/[.,!?;:，。！？；：、…\s\-_/\\()[\]{}'"“”‘’]/g, '');
+  if (!semantic) {
+    return '';
+  }
+
+  return cleaned;
 }
 
 async function startRecordingAudio() {
@@ -1250,6 +1361,7 @@ function initWakeControls() {
 
 function updateWakeToggleUi() {
   wakeToggleBtn.textContent = wakeModeEnabled ? '唤醒模式：开' : '唤醒模式：关';
+  updateWakeGreetingUi();
 }
 
 function updatePttToggleUi() {
@@ -1277,7 +1389,17 @@ function updateWakeWords(rawValue) {
   wakeWordsRaw = wakeWords.join(',');
   wakeWordsInput.value = wakeWordsRaw;
   wakeWordsNormalized = wakeWords.map((word) => normalizeForWake(word)).filter(Boolean);
+  updateWakeGreetingUi();
   log(`wake.words: ${wakeWordsRaw}`);
+}
+
+function updateWakeGreetingUi() {
+  if (!wakeGreetingEl) {
+    return;
+  }
+  const primaryWakeWord = wakeWords[0] || DEFAULT_WAKE_WORDS;
+  wakeGreetingEl.textContent = `嗨，我是「${primaryWakeWord}」，想要做点什么？`;
+  wakeGreetingEl.hidden = !wakeModeEnabled;
 }
 
 async function loadClientConfig() {
@@ -1346,6 +1468,7 @@ function refreshControls() {
     recordBtn.setAttribute('aria-disabled', 'true');
     recordBtn.classList.add('is-inactive');
     if (stopBtn) {
+      stopBtn.hidden = true;
       stopBtn.disabled = true;
     }
     return;
@@ -1354,12 +1477,14 @@ function refreshControls() {
   const canManualStart = voiceState === STATE.WAKE_IDLE || voiceState === STATE.MANUAL_READY;
   const canStop = voiceState === STATE.CAPTURING_TURN;
   const canOrbToggle = canManualStart || canStop;
+  const canStopPlayback = canStopCurrentPlayback();
 
   recordBtn.disabled = false;
   recordBtn.setAttribute('aria-disabled', String(!canOrbToggle));
   recordBtn.classList.toggle('is-inactive', !canOrbToggle);
   if (stopBtn) {
-    stopBtn.disabled = !canStop;
+    stopBtn.hidden = !canStopPlayback;
+    stopBtn.disabled = !canStopPlayback;
   }
 }
 
@@ -1391,10 +1516,6 @@ function setChannelLinkStatus(text) {
   channelLinkStatusEl.textContent = text;
 }
 
-function setChannelSessionId(text) {
-  channelSessionIdEl.textContent = text;
-}
-
 function setChannelLastError(text) {
   channelLastErrorEl.textContent = text;
 }
@@ -1422,6 +1543,7 @@ function setAssistantStream(text) {
   ];
   pendingUserPrompt = '';
   renderAssistantReplies();
+  scheduleAssistantAutoScroll('smooth');
 }
 
 function appendAssistantStream(delta) {
@@ -1433,6 +1555,7 @@ function appendAssistantStream(delta) {
   reply.text += delta;
   assistantStream = reply.text;
   renderAssistantReplies();
+  scheduleAssistantAutoScroll();
 }
 
 function ensureAssistantReply() {
@@ -1467,6 +1590,7 @@ function completeAssistantReply() {
   latest.complete = true;
   assistantStream = '';
   renderAssistantReplies();
+  scheduleAssistantAutoScroll();
 }
 
 function renderAssistantReplies() {
@@ -1474,7 +1598,7 @@ function renderAssistantReplies() {
     assistantStreamEl.innerHTML = `
       <article class="assistant-entry assistant-entry-empty">
         <p class="assistant-entry-label">等待回复</p>
-        <p class="assistant-entry-body">OpenClaw 的回复会直接在这里铺开显示。</p>
+        <div class="assistant-entry-body markdown-body"><p>OpenClaw 的回复会直接在这里铺开显示。</p></div>
       </article>
     `;
     return;
@@ -1494,12 +1618,55 @@ function renderAssistantReplies() {
       return `
         <article class="assistant-entry${reply.complete ? '' : ' assistant-entry-current'}" data-reply-index="${reply.index}">
           ${promptMarkup}
-          <p class="assistant-entry-label">${escapeHtml(label)}</p>
-          <p class="assistant-entry-body">${escapeHtml(reply.text || '...')}</p>
+          <div class="assistant-entry-head">
+            <p class="assistant-entry-label">${escapeHtml(label)}</p>
+          </div>
+          <div class="assistant-entry-body markdown-body">${renderMarkdown(reply.text || '...')}</div>
         </article>
       `;
     })
     .join('');
+}
+
+function scheduleAssistantAutoScroll(behavior = 'auto') {
+  if (assistantAutoScrollFrame) {
+    cancelAnimationFrame(assistantAutoScrollFrame);
+  }
+
+  assistantAutoScrollFrame = requestAnimationFrame(() => {
+    assistantAutoScrollFrame = 0;
+    const latest = assistantStreamEl.querySelector('.assistant-entry:last-of-type');
+    if (!latest) {
+      return;
+    }
+
+    const rect = latest.getBoundingClientRect();
+    const targetTop =
+      window.scrollY + rect.bottom - window.innerHeight + ASSISTANT_SCROLL_PADDING_PX;
+
+    window.scrollTo({
+      top: Math.max(0, targetTop),
+      behavior
+    });
+  });
+}
+
+function canStopReplyPlayback(reply) {
+  if (assistantPlaybackStopped) {
+    return false;
+  }
+  if (!assistantReplyStarted) {
+    return false;
+  }
+  const latest = assistantReplies[assistantReplies.length - 1];
+  if (!latest || latest.id !== reply.id) {
+    return false;
+  }
+  return assistantPlaybackActive;
+}
+
+function canStopCurrentPlayback() {
+  return assistantReplies.some((reply) => canStopReplyPlayback(reply));
 }
 
 function escapeHtml(text) {
@@ -1510,6 +1677,255 @@ function escapeHtml(text) {
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;')
     .replaceAll('\n', '<br />');
+}
+
+function escapeHtmlInline(text) {
+  return String(text)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function escapeHtmlAttr(text) {
+  return escapeHtmlInline(text);
+}
+
+function renderMarkdown(text) {
+  const normalized = String(text ?? '').replace(/\r\n?/g, '\n').trim();
+  if (!normalized) {
+    return '<p>...</p>';
+  }
+
+  const blocks = normalized.split(/\n{2,}/).map((block) => block.trim()).filter(Boolean);
+  return blocks.map(renderMarkdownBlock).join('');
+}
+
+function renderMarkdownBlock(block) {
+  const codeMatch = block.match(/^```([\w-]+)?\n([\s\S]*?)\n```$/);
+  if (codeMatch) {
+    const language = codeMatch[1] ? `<span class="md-code-lang">${escapeHtmlInline(codeMatch[1])}</span>` : '';
+    return `<pre class="md-code-block">${language}<code>${escapeHtmlInline(codeMatch[2])}</code></pre>`;
+  }
+
+  const headingMatch = block.match(/^(#{1,6})\s+(.+)$/);
+  if (headingMatch) {
+    const level = Math.min(6, headingMatch[1].length);
+    return `<h${level}>${renderMarkdownInline(headingMatch[2])}</h${level}>`;
+  }
+
+  const quoteLines = block.split('\n');
+  if (quoteLines.every((line) => /^\s*>\s?/.test(line))) {
+    const quoted = quoteLines.map((line) => line.replace(/^\s*>\s?/, '')).join('\n');
+    return `<blockquote>${renderMarkdown(quoted)}</blockquote>`;
+  }
+
+  if (isMarkdownTable(block)) {
+    return renderMarkdownTable(block);
+  }
+
+  if (isMarkdownListBlock(block)) {
+    return renderMarkdownList(block);
+  }
+
+  return `<p>${renderMarkdownInline(block).replace(/\n/g, '<br />')}</p>`;
+}
+
+function isMarkdownTable(block) {
+  const lines = block.split('\n').map((line) => line.trim()).filter(Boolean);
+  if (lines.length < 2) {
+    return false;
+  }
+  return /^\|?[\s:-]+(?:\|[\s:-]+)+\|?$/.test(lines[1]);
+}
+
+function renderMarkdownTable(block) {
+  const lines = block.split('\n').map((line) => line.trim()).filter(Boolean);
+  const header = splitMarkdownTableRow(lines[0]);
+  const alignments = splitMarkdownTableRow(lines[1]).map(parseMarkdownTableAlignment);
+  const bodyRows = lines.slice(2).map(splitMarkdownTableRow);
+
+  const headerHtml = header
+    .map((cell, index) => `<th${markdownTableAlignAttr(alignments[index])}>${renderMarkdownInline(cell)}</th>`)
+    .join('');
+  const bodyHtml = bodyRows
+    .map((row) => {
+      const cells = header.map((_, index) => row[index] ?? '');
+      const cellsHtml = cells
+        .map((cell, index) => `<td${markdownTableAlignAttr(alignments[index])}>${renderMarkdownInline(cell)}</td>`)
+        .join('');
+      return `<tr>${cellsHtml}</tr>`;
+    })
+    .join('');
+
+  return `
+    <div class="md-table-wrap">
+      <table class="md-table">
+        <thead><tr>${headerHtml}</tr></thead>
+        <tbody>${bodyHtml}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function splitMarkdownTableRow(line) {
+  const normalized = String(line).trim().replace(/^\|/, '').replace(/\|$/, '');
+  return normalized.split('|').map((cell) => cell.trim());
+}
+
+function parseMarkdownTableAlignment(cell) {
+  const trimmed = String(cell).trim();
+  const left = trimmed.startsWith(':');
+  const right = trimmed.endsWith(':');
+  if (left && right) {
+    return 'center';
+  }
+  if (right) {
+    return 'right';
+  }
+  if (left) {
+    return 'left';
+  }
+  return '';
+}
+
+function markdownTableAlignAttr(alignment) {
+  return alignment ? ` style="text-align:${alignment}"` : '';
+}
+
+function isMarkdownListBlock(block) {
+  const lines = block.split('\n').filter((line) => line.trim());
+  if (!lines.length) {
+    return false;
+  }
+  return lines.every((line) => {
+    if (/^\s{4,}/.test(line)) {
+      return false;
+    }
+    return /^\s*(?:[-*+]|\d+\.)\s+/.test(line) || /^\s*[-*+]\s+\[(?: |x|X)\]\s+/.test(line);
+  });
+}
+
+function renderMarkdownList(block) {
+  const items = block
+    .split('\n')
+    .map(parseMarkdownListLine)
+    .filter(Boolean);
+
+  if (!items.length) {
+    return `<p>${renderMarkdownInline(block).replace(/\n/g, '<br />')}</p>`;
+  }
+
+  const root = [];
+  const stack = [{ indent: -1, children: root }];
+
+  for (const item of items) {
+    while (stack.length > 1 && item.indent <= stack[stack.length - 1].indent) {
+      stack.pop();
+    }
+    const parent = stack[stack.length - 1];
+    const node = { ...item, children: [] };
+    parent.children.push(node);
+    stack.push({ indent: item.indent, children: node.children });
+  }
+
+  return renderMarkdownListNodes(root);
+}
+
+function parseMarkdownListLine(line) {
+  const match = line.match(/^(\s*)([-*+]|\d+\.)\s+(\[(?: |x|X)\]\s+)?(.+)$/);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    indent: Math.floor(match[1].replace(/\t/g, '    ').length / 2),
+    ordered: /\d+\./.test(match[2]),
+    checked: match[3] ? /x|X/.test(match[3]) : null,
+    text: match[4].trim()
+  };
+}
+
+function renderMarkdownListNodes(nodes) {
+  if (!nodes.length) {
+    return '';
+  }
+
+  let html = '';
+  let index = 0;
+  while (index < nodes.length) {
+    const ordered = nodes[index].ordered;
+    const group = [];
+    while (index < nodes.length && nodes[index].ordered === ordered) {
+      group.push(nodes[index]);
+      index += 1;
+    }
+    const tag = ordered ? 'ol' : 'ul';
+    const className = group.some((item) => item.checked !== null) ? ' class="md-task-list"' : '';
+    const itemsHtml = group
+      .map((item) => {
+        const checkbox =
+          item.checked === null
+            ? ''
+            : `<span class="md-task-checkbox${item.checked ? ' is-checked' : ''}" aria-hidden="true"></span>`;
+        const children = renderMarkdownListNodes(item.children);
+        return `<li${item.checked !== null ? ' class="md-task-item"' : ''}>${checkbox}<span>${renderMarkdownInline(item.text)}</span>${children}</li>`;
+      })
+      .join('');
+    html += `<${tag}${className}>${itemsHtml}</${tag}>`;
+  }
+  return html;
+}
+
+function renderMarkdownInline(text) {
+  let working = String(text ?? '');
+  const tokens = [];
+
+  const stash = (html) => {
+    const token = `@@MD_TOKEN_${tokens.length}@@`;
+    tokens.push({ token, html });
+    return token;
+  };
+
+  working = working.replace(/`([^`\n]+)`/g, (_match, code) => {
+    return stash(`<code>${escapeHtmlInline(code)}</code>`);
+  });
+
+  working = working.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_match, label, rawUrl) => {
+    const safeUrl = sanitizeMarkdownUrl(rawUrl);
+    if (!safeUrl) {
+      return escapeHtmlInline(label);
+    }
+    return stash(
+      `<a href="${escapeHtmlAttr(safeUrl)}" target="_blank" rel="noreferrer noopener">${escapeHtmlInline(label)}</a>`
+    );
+  });
+
+  working = escapeHtmlInline(working);
+  working = working.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  working = working.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+  working = working.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+  working = working.replace(/_([^_\n]+)_/g, '<em>$1</em>');
+  working = working.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+
+  for (const { token, html } of tokens) {
+    working = working.replaceAll(token, html);
+  }
+
+  return working;
+}
+
+function sanitizeMarkdownUrl(rawUrl) {
+  try {
+    const url = new URL(rawUrl, window.location.origin);
+    if (url.protocol === 'http:' || url.protocol === 'https:' || url.protocol === 'mailto:') {
+      return url.toString();
+    }
+  } catch {
+    return '';
+  }
+  return '';
 }
 
 function setLastServerEvent(text) {

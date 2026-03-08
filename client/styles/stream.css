@@ -1,0 +1,119 @@
+.stream-column {
+  display: grid;
+  gap: 26px;
+  padding-top: 8px;
+  max-width: min(760px, calc(100% - 120px));
+}
+
+.transcript {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.92rem;
+  line-height: 1.54;
+  word-break: break-word;
+}
+
+.transcript.muted {
+  color: var(--muted);
+}
+
+.assistant-stream {
+  display: grid;
+  gap: 54px;
+  padding: 10px 0 0;
+}
+
+.assistant-entry {
+  position: relative;
+  max-width: 760px;
+  padding-left: 28px;
+}
+
+.assistant-entry::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 1px;
+  background: linear-gradient(180deg, rgba(126, 160, 255, 0.58), rgba(126, 160, 255, 0.06));
+}
+
+.assistant-entry::after {
+  content: "";
+  position: absolute;
+  left: -3px;
+  top: 24px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(132, 170, 255, 0.88);
+  box-shadow: 0 0 14px rgba(102, 144, 255, 0.44);
+}
+
+.assistant-entry-prompt {
+  margin: 0 0 18px;
+  padding: 0 0 0 2px;
+}
+
+.assistant-entry-prompt-label {
+  margin: 0 0 8px;
+  color: rgba(193, 209, 246, 0.74);
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.assistant-entry-prompt-body {
+  margin: 0;
+  color: rgba(240, 245, 255, 0.88);
+  font-size: 0.9rem;
+  line-height: 1.62;
+  text-wrap: pretty;
+}
+
+.assistant-entry-label {
+  margin: 0 0 12px;
+  color: var(--muted-2);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.assistant-entry-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 0 12px;
+}
+
+.assistant-entry-head .assistant-entry-label {
+  margin: 0;
+}
+
+.assistant-entry-body {
+  margin: 0;
+  color: var(--text);
+  font-size: clamp(1.02rem, 0.9rem + 0.24vw, 1.18rem);
+  line-height: 1.82;
+  text-wrap: pretty;
+}
+
+.assistant-entry-current .assistant-entry-label {
+  color: rgba(151, 193, 255, 0.94);
+}
+
+.assistant-entry-current::before {
+  background: linear-gradient(180deg, rgba(120, 183, 255, 0.9), rgba(120, 183, 255, 0.12));
+}
+
+.assistant-entry-empty {
+  max-width: 620px;
+  opacity: 0.72;
+}
+
+.assistant-entry-empty .assistant-entry-body {
+  color: var(--muted);
+  font-size: 0.92rem;
+}

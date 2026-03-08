@@ -9,6 +9,12 @@ A two-layer realtime voice interaction project for OpenClaw:
 
 This repository is designed to help you build a ChatGPT Voice-like flow on top of OpenClaw.
 
+## Screenshots
+
+![Voice UI Screenshot 1](./ScreenShot_1.png)
+
+![Voice UI Screenshot 2](./ScreenShot_2.png)
+
 ## Features
 
 - Realtime websocket voice session endpoint (`/channel/voice/ws`)

@@ -9,6 +9,12 @@
 
 该仓库用于构建类似 ChatGPT Voice 的 OpenClaw 语音链路。
 
+## 界面截图
+
+![语音界面截图 1](./ScreenShot_1.png)
+
+![语音界面截图 2](./ScreenShot_2.png)
+
 ## 功能
 
 - 实时语音会话 WebSocket 入口（`/channel/voice/ws`）

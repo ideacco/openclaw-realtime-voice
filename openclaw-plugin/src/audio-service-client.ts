@@ -144,8 +144,9 @@ export class AudioServiceClient extends EventEmitter {
     },
     timeoutMs = 10_000
   ): Promise<ChannelStartedPayload> {
+    const pending = this.waitForChannelStarted(timeoutMs);
     this.startChannel(params);
-    return this.waitForChannelStarted(timeoutMs);
+    return pending;
   }
 
   sendText(text: string): void {

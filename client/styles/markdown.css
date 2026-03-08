@@ -10,6 +10,7 @@
 .markdown-body ul,
 .markdown-body ol,
 .markdown-body pre,
+.markdown-body table,
 .markdown-body blockquote {
   margin: 0 0 18px;
 }
@@ -40,7 +41,7 @@
 
 .markdown-body ul,
 .markdown-body ol {
-  padding-left: 1.3em;
+  padding-left: 1.45em;
 }
 
 .markdown-body ul ul,
@@ -49,10 +50,16 @@
 .markdown-body ol ol {
   margin-top: 10px;
   margin-bottom: 0;
+  padding-left: 1.25em;
 }
 
 .markdown-body li + li {
   margin-top: 8px;
+}
+
+.markdown-body li::marker {
+  color: rgba(201, 223, 255, 0.9);
+  font-weight: 700;
 }
 
 .markdown-body li > span {
@@ -74,15 +81,22 @@
   color: rgba(236, 245, 255, 0.96);
 }
 
+.markdown-body pre,
 .markdown-body .md-code-block {
   position: relative;
   overflow-x: auto;
+  margin: 0 0 20px;
   padding: 16px 18px 18px;
   border-radius: 18px;
-  border: 1px solid rgba(166, 191, 255, 0.14);
-  background: rgba(12, 20, 40, 0.34);
+  border: 1px solid rgba(166, 191, 255, 0.18);
+  background:
+    linear-gradient(180deg, rgba(12, 19, 38, 0.82), rgba(8, 14, 28, 0.68));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 10px 28px rgba(5, 10, 24, 0.18);
 }
 
+.markdown-body pre code,
 .markdown-body .md-code-block code {
   display: block;
   padding: 0;
@@ -90,6 +104,7 @@
   border-radius: 0;
   white-space: pre;
   line-height: 1.6;
+  font-size: 0.92em;
 }
 
 .markdown-body .md-code-lang {
@@ -109,6 +124,7 @@
   background: rgba(10, 17, 34, 0.2);
 }
 
+.markdown-body table,
 .markdown-body .md-table {
   width: 100%;
   min-width: 460px;
@@ -116,6 +132,8 @@
   font-size: 0.95em;
 }
 
+.markdown-body table th,
+.markdown-body table td,
 .markdown-body .md-table th,
 .markdown-body .md-table td {
   padding: 12px 14px;
@@ -123,12 +141,14 @@
   vertical-align: top;
 }
 
+.markdown-body table th,
 .markdown-body .md-table th {
   color: rgba(247, 251, 255, 0.95);
   font-weight: 700;
   background: rgba(255, 255, 255, 0.04);
 }
 
+.markdown-body table tbody tr:last-child td,
 .markdown-body .md-table tbody tr:last-child td {
   border-bottom: none;
 }

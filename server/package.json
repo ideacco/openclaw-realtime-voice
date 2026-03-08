@@ -13,6 +13,8 @@
     "check": "tsc --noEmit"
   },
   "dependencies": {
+    "dompurify": "^3.3.2",
+    "markdown-it": "^14.1.1",
     "ws": "^8.18.0"
   },
   "devDependencies": {

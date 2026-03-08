@@ -7,7 +7,10 @@ export class PcmAudioPlayer {
   }
 
   async init() {
-    if (this.ctx) {
+    if (this.ctx && this.ctx.state !== 'closed') {
+      if (this.ctx.state === 'suspended') {
+        await this.ctx.resume();
+      }
       return;
     }
     const AudioContextImpl = window.AudioContext || window.webkitAudioContext;
@@ -24,6 +27,9 @@ export class PcmAudioPlayer {
     }
     if (!this.ctx) {
       return;
+    }
+    if (this.ctx.state === 'suspended') {
+      await this.ctx.resume();
     }
 
     const pcm = decodePcm16(base64Pcm);

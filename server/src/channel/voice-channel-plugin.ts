@@ -63,6 +63,10 @@ export class VoiceChannelPlugin {
 
   private readonly sessions = new Map<WebSocket, SessionState>();
 
+  private static readonly PLUGIN_PEER_WAIT_MS = 4000;
+
+  private static readonly PLUGIN_PEER_POLL_MS = 100;
+
   constructor(private readonly options: VoiceChannelPluginOptions) {
     this.wss = new WebSocketServer({ noServer: true });
 
@@ -512,18 +516,10 @@ export class VoiceChannelPlugin {
     };
     this.send(state.ws, createdEvent);
 
-    let pluginPeerCount = 0;
     if (this.options.openclawMode === 'plugin' && state.clientRole === 'web') {
-      for (const peer of this.sessions.values()) {
-        if (peer === state || peer.clientRole !== 'plugin') {
-          continue;
-        }
-        pluginPeerCount += 1;
-        this.send(peer.ws, createdEvent);
-        this.touch(peer.ws);
-      }
+      const peers = await this.waitForPluginPeers(state, VoiceChannelPlugin.PLUGIN_PEER_WAIT_MS);
 
-      if (pluginPeerCount === 0) {
+      if (peers.length === 0) {
         this.sendError(
           state.ws,
           'UPSTREAM_ERROR',
@@ -531,6 +527,11 @@ export class VoiceChannelPlugin {
           true,
           state.sessionId
         );
+      } else {
+        for (const peer of peers) {
+          this.send(peer.ws, createdEvent);
+          this.touch(peer.ws);
+        }
       }
     }
 
@@ -676,6 +677,35 @@ export class VoiceChannelPlugin {
     return null;
   }
 
+  private getPluginPeers(exclude: SessionState): SessionState[] {
+    const peers: SessionState[] = [];
+    for (const peer of this.sessions.values()) {
+      if (peer === exclude || peer.clientRole !== 'plugin') {
+        continue;
+      }
+      peers.push(peer);
+    }
+    return peers;
+  }
+
+  private async waitForPluginPeers(exclude: SessionState, timeoutMs: number): Promise<SessionState[]> {
+    const immediate = this.getPluginPeers(exclude);
+    if (immediate.length > 0 || timeoutMs <= 0) {
+      return immediate;
+    }
+
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+      await delay(VoiceChannelPlugin.PLUGIN_PEER_POLL_MS);
+      const peers = this.getPluginPeers(exclude);
+      if (peers.length > 0) {
+        return peers;
+      }
+    }
+
+    return this.getPluginPeers(exclude);
+  }
+
   private send(ws: WebSocket, event: ServerEvent): void {
     if (ws.readyState !== ws.OPEN) {
       return;
@@ -777,3 +807,9 @@ const FILLER_UTTERANCES = new Set([
   '哈',
   '哈哈'
 ]);
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}

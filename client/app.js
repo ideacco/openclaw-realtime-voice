@@ -272,6 +272,14 @@ speakBtn.addEventListener('click', () => {
     log('警告: 当前会话未启用 OpenClaw 链路，input.text 可能没有返回');
   }
 
+  clearAssistantTimers();
+  resetTurnBuffers();
+  assistantPlaybackStopped = false;
+  assistantPlaybackActive = false;
+  void player.init().catch((error) => {
+    log(`播放器预热失败: ${toErrorMessage(error)}`);
+  });
+
   send({ type: 'input.text', text });
   pendingUserPrompt = text;
   setVoiceState(STATE.WAITING_ASSISTANT, '文本已发送，等待 OpenClaw 回复');
@@ -546,6 +554,9 @@ async function beginTurn(source, wakeKeyword = '') {
   resetTurnBuffers();
   assistantPlaybackStopped = false;
   assistantPlaybackActive = false;
+  void player.init().catch((error) => {
+    log(`播放器预热失败: ${toErrorMessage(error)}`);
+  });
   turnSource = source;
   turnStartedAt = Date.now();
   wakeCapturePrimingUntil = source === 'wake' ? Date.now() + WAKE_CAPTURE_PRIMING_MS : 0;
